@@ -1,0 +1,1866 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>產線模擬 - 強化機花型高空流道 03/31版</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Microsoft JhengHei','Segoe UI',sans-serif;background:#1a1a2e;color:#e0e0e0;overflow:hidden;height:100vh}
+.app{display:grid;grid-template-columns:330px 1fr 300px;grid-template-rows:44px 1fr 200px;height:100vh}
+.hdr{grid-column:1/-1;background:#16213e;display:flex;align-items:center;padding:0 16px;gap:14px;border-bottom:1px solid #0f3460}
+.hdr h1{font-size:14px;color:#e94560;white-space:nowrap}
+.hdr button{padding:5px 14px;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-family:inherit}
+.btn-go{background:#0f3460;color:#fff}.btn-go:hover,.btn-go.on{background:#e94560}
+.btn-rs{background:#333;color:#ccc}
+.hdr .spd{display:flex;align-items:center;gap:5px;font-size:12px;color:#999}
+.hdr .spd input{width:80px}
+.hdr .st{margin-left:auto;font-size:12px;color:#4ecca3}
+
+/* Left panel */
+.pnl-l{background:#16213e;overflow-y:auto;border-right:1px solid #0f3460;padding:8px;font-size:11px}
+.pg{margin-bottom:8px}
+.pg h3{font-size:10px;color:#e94560;margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #0f3460;padding-bottom:2px}
+.pr{display:flex;align-items:center;margin-bottom:2px}
+.pr label{flex:1;color:#999;font-size:10px;padding-right:4px}
+.pr input{width:52px;text-align:right;background:#0a0a23;border:1px solid #0f3460;color:#4ecca3;padding:1px 4px;border-radius:2px;font-size:10px}
+.pr .u{font-size:9px;color:#555;width:22px;margin-left:2px}
+
+/* Center */
+.cv{background:#1a1a2e;position:relative;overflow:hidden}
+#lc{width:100%;height:100%}
+
+/* Right panel */
+.pnl-r{background:#16213e;overflow-y:auto;border-left:1px solid #0f3460;padding:8px}
+.sc{background:#0a0a23;border-radius:4px;padding:6px 8px;margin-bottom:5px;border:1px solid #0f3460}
+.sc h4{font-size:9px;color:#555;margin-bottom:1px;text-transform:uppercase}
+.sc .v{font-size:20px;font-weight:bold;color:#4ecca3}
+.sc .s{font-size:9px;color:#777;margin-top:1px}
+.sc.w .v{color:#e94560}
+.mc{height:50px;background:#0a0a23;border-radius:3px;margin-top:3px;overflow:hidden}
+.mc canvas{width:100%;height:100%}
+
+/* Bottom */
+.pnl-b{grid-column:1/-1;background:#0a0a23;border-top:1px solid #0f3460;display:grid;grid-template-columns:1fr 1fr 1fr 1fr}
+.elog{overflow-y:auto;padding:4px 8px;border-right:1px solid #0f3460}
+.elog h3{font-size:10px;color:#e94560;margin-bottom:3px;position:sticky;top:0;background:#0a0a23}
+.ei{font-size:9px;padding:1px 0;border-bottom:1px solid #111;display:flex;gap:4px}
+.ei .t{color:#4ecca3;width:58px;flex-shrink:0}
+.ei .tp{width:58px;flex-shrink:0}
+.ei .tp.warn{color:#e94560}.ei .tp.info{color:#3498db}.ei .tp.ok{color:#4ecca3}
+.ei .d{color:#777}
+.tlp{padding:4px 8px;overflow:hidden}
+.tlp h3{font-size:10px;color:#e94560;margin-bottom:3px}
+#tc{width:100%;height:165px}
+
+.tt{position:absolute;background:#16213e;border:1px solid #e94560;border-radius:3px;padding:5px 7px;font-size:9px;pointer-events:none;z-index:100;display:none;max-width:240px;white-space:pre-line;line-height:1.4}
+.tt b{color:#e94560}.tt span{color:#4ecca3}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="hdr">
+    <h1>產線模擬 - 03/31 強化機花型高空流道</h1>
+    <button class="btn-go" id="btnR" onclick="toggle()">&#9654; 開始</button>
+    <button class="btn-rs" onclick="reset()">&#8635; 重置</button>
+    <div class="spd"><span>速度:</span><input type="number" id="spdS" min="1" max="9999" value="999" style="width:56px;background:#0a0a23;border:1px solid #0f3460;color:#4ecca3;padding:2px 4px;border-radius:2px;font-size:11px;text-align:right"><span id="spdL">x</span></div>
+    <button class="btn-rs" onclick="saveParams()" title="儲存目前參數">💾 存檔</button>
+    <button class="btn-rs" onclick="loadParams()" title="載入上次存檔">📂 載入</button>
+    <button class="btn-rs" onclick="resetParams()" title="恢復 HTML 預設值">🔄 預設</button>
+    <button class="btn-rs" onclick="exportSnapshot()" title="匯出當下參數+統計快照,方便比較">📊 匯出</button>
+    <div class="st" id="stTxt">就緒</div>
+  </div>
+
+  <!-- LEFT: Parameters (每個子動作拆開) -->
+  <div class="pnl-l">
+    <div class="pg"><h3>入料貨架</h3>
+      <div class="pr"><label>每車片數</label><input id="p_cart_pieces" type="number" value="32"><span class="u">片</span></div>
+      <div class="pr"><label>旋轉每N片</label><input id="p_rack_rotate_n" type="number" value="16"><span class="u">片</span></div>
+      <div class="pr"><label>旋轉時間</label><input id="p_rack_rotate_time" type="number" value="30"><span class="u">秒</span></div>
+      <div class="pr"><label>換車時間(阻塞手臂A)</label><input id="p_cart_in_time" type="number" value="60"><span class="u">秒</span></div>
+    </div>
+    <div class="pg"><h3>手臂A + 高空滑台1</h3>
+      <div class="pr"><label>手臂A 拍照定位</label><input id="p_armA_photo" type="number" value="15"><span class="u">秒</span></div>
+      <div class="pr"><label>手臂A 取推車→滑台</label><input id="p_armA_pick" type="number" value="40"><span class="u">秒</span></div>
+      <div class="pr"><label>拍照每N片一次</label><input id="p_armA_photo_n" type="number" value="8"><span class="u">片</span></div>
+      <div class="pr"><label>滑台1 去程</label><input id="p_conv1_go" type="number" value="10"><span class="u">秒</span></div>
+      <div class="pr"><label>滑台1 回程</label><input id="p_conv1_back" type="number" value="10"><span class="u">秒</span></div>
+    </div>
+    <div class="pg"><h3>手臂O</h3>
+      <div class="pr"><label>取滑台→放清洗機</label><input id="p_armO_to_wash" type="number" value="30"><span class="u">秒</span></div>
+      <div class="pr"><label>取清洗機→放暫存架</label><input id="p_armO_to_rack" type="number" value="30"><span class="u">秒</span></div>
+    </div>
+    <div class="pg"><h3>清洗機 (迴轉步進式)</h3>
+      <div class="pr"><label>清洗時間(每步)</label><input id="p_wash_clean" type="number" value="50"><span class="u">秒</span></div>
+      <div class="pr"><label>步進移動時間</label><input id="p_wash_move" type="number" value="10"><span class="u">秒</span></div>
+      <div class="pr"><label>格數</label><input id="p_wash_slots" type="number" value="13"><span class="u">格</span></div>
+    </div>
+    <div class="pg"><h3>手臂1</h3>
+      <div class="pr"><label>暫存架→轉接平台1</label><input id="p_arm1_move" type="number" value="30"><span class="u">秒</span></div>
+      <div class="pr"><label>轉接平台1 容量</label><input id="p_plat1_cap" type="number" value="4"><span class="u">片</span></div>
+    </div>
+    <div class="pg"><h3>手臂2</h3>
+      <div class="pr"><label>取轉接平台1→放強化機</label><input id="p_arm2_to_str" type="number" value="35"><span class="u">秒</span></div>
+      <div class="pr"><label>取強化機→放預烘機</label><input id="p_arm2_to_pre" type="number" value="30"><span class="u">秒</span></div>
+    </div>
+    <div class="pg"><h3>強化機</h3>
+      <div class="pr"><label>強化CT (每台1片)</label><input id="p_str_ct" type="number" value="120"><span class="u">秒</span></div>
+      <div class="pr"><label>台數</label><input id="p_str_n" type="number" value="4"><span class="u">台</span></div>
+    </div>
+    <div class="pg"><h3>預烘機 (步進式)</h3>
+      <div class="pr"><label>步進移動時間(每步)</label><input id="p_pre_ct" type="number" value="10"><span class="u">秒</span></div>
+      <div class="pr"><label>格數</label><input id="p_pre_slots" type="number" value="4"><span class="u">格</span></div>
+    </div>
+    <div class="pg"><h3>手臂3</h3>
+      <div class="pr"><label>取預烘→放轉接平台2</label><input id="p_arm3_to_p2" type="number" value="35"><span class="u">秒</span></div>
+      <div class="pr"><label>取轉接平台2→放出料位</label><input id="p_arm3_to_out" type="number" value="35"><span class="u">秒</span></div>
+    </div>
+    <div class="pg"><h3>手臂L + 烤箱</h3>
+      <div class="pr"><label>入料(平台2→桿,4片)</label><input id="p_armL_in" type="number" value="120"><span class="u">秒</span></div>
+      <div class="pr"><label>出料(桿→平台2,4片)</label><input id="p_armL_out" type="number" value="120"><span class="u">秒</span></div>
+      <div class="pr"><label>每桿掛架數</label><input id="p_batch" type="number" value="4"><span class="u">片</span></div>
+      <div class="pr"><label>烤箱總桿數</label><input id="p_ovenRods" type="number" value="37"><span class="u">桿</span></div>
+      <div class="pr"><label>烘烤時間(可出料)</label><input id="p_bakeOk" type="number" value="120"><span class="u">min</span></div>
+      <div class="pr"><label>過烘時間(強制只出不進)</label><input id="p_bakeOver" type="number" value="200"><span class="u">min</span></div>
+    </div>
+    <div class="pg"><h3>手臂B + 高空滑台2</h3>
+      <div class="pr"><label>滑台2 去程</label><input id="p_conv2_go" type="number" value="10"><span class="u">秒</span></div>
+      <div class="pr"><label>滑台2 回程</label><input id="p_conv2_back" type="number" value="10"><span class="u">秒</span></div>
+      <div class="pr"><label>手臂B 拍照定位</label><input id="p_armB_photo" type="number" value="15"><span class="u">秒</span></div>
+      <div class="pr"><label>手臂B 取滑台→推車</label><input id="p_armB_pick" type="number" value="40"><span class="u">秒</span></div>
+      <div class="pr"><label>拍照每N片一次</label><input id="p_armB_photo_n" type="number" value="8"><span class="u">片</span></div>
+    </div>
+    <div class="pg"><h3>出料貨架</h3>
+      <div class="pr"><label>每車片數</label><input id="p_cart_out_pieces" type="number" value="32"><span class="u">片</span></div>
+      <div class="pr"><label>旋轉每N片</label><input id="p_rack_out_rotate_n" type="number" value="16"><span class="u">片</span></div>
+      <div class="pr"><label>旋轉時間</label><input id="p_rack_out_rotate_time" type="number" value="30"><span class="u">秒</span></div>
+      <div class="pr"><label>換車時間(阻塞手臂B)</label><input id="p_cart_out_time" type="number" value="60"><span class="u">秒</span></div>
+    </div>
+    <div class="pg"><h3>模擬</h3>
+      <div class="pr"><label>模擬時數</label><input id="p_simH" type="number" value="8"><span class="u">hr</span></div>
+      <div class="pr"><label>額外異常延遲/換車</label><input id="p_extra" type="number" value="0"><span class="u">秒</span></div>
+      <div class="pr"><label>動作間隔(每動作+)</label><input id="p_action_gap" type="number" value="0" min="0" step="0.1"><span class="u">秒</span></div>
+    </div>
+  </div>
+
+  <div class="cv"><canvas id="lc"></canvas><div class="tt" id="tip"></div></div>
+
+  <div class="pnl-r">
+    <div class="sc"><h4>模擬時間</h4><div class="v" id="s_time">0:00:00</div><div class="s" id="s_pct">0%</div></div>
+    <div class="sc"><h4>穩態 UPH (首片出料後)</h4><div class="v" id="s_uph_ss">--</div><div class="s" id="s_uph_ss2">手臂B首動: --</div></div>
+    <div class="sc"><h4>出料 / 入料</h4><div class="v" id="s_out">0</div><div class="s" id="s_in">入: 0</div></div>
+    <div class="sc"><h4>過烘</h4><div class="v" id="s_ob">0 片</div><div class="s" id="s_ob2">0%</div></div>
+    <div class="sc"><h4>最長烘烤</h4><div class="v" id="s_mb">--</div><div class="s" id="s_mb2">門檻:120min</div></div>
+    <div class="sc"><h4>只出不進</h4><div class="v" id="s_oo">0 min</div><div class="s" id="s_oo2">佔比: 0%</div></div>
+    <div class="sc"><h4>換車</h4><div class="v" id="s_cc">入0/出0</div><div class="s" id="s_cc2">耗時:0min</div></div>
+    <div class="sc"><h4>烤箱</h4><div class="v" id="s_ov">0桿/0片</div><div class="s" id="s_ov2">最老:--</div></div>
+    <div class="sc"><h4>瓶頸設備</h4><div class="v" id="s_bn" style="font-size:18px">--</div><div class="s" id="s_bn2">--</div></div>
+    <div class="sc"><h4>WIP 堆積</h4><div class="s" id="s_wip" style="white-space:pre;line-height:1.4;font-size:9px;color:#3498db">--</div></div>
+    <div class="sc"><h4>各站利用率</h4><div class="s" id="s_util" style="white-space:pre;line-height:1.5;font-size:9px;color:#4ecca3">--</div></div>
+    <div class="mc"><canvas id="uc"></canvas></div>
+  </div>
+
+  <div class="pnl-b">
+    <div class="elog" id="eLog"><h3>事件記錄</h3></div>
+    <div class="tlp"><h3>設備即時狀態</h3><canvas id="tc"></canvas></div>
+    <div class="oven-detail" id="ovenDetail" style="overflow-y:auto;padding:4px 8px;border-left:1px solid #0f3460">
+      <h3 style="font-size:10px;color:#e94560;margin-bottom:3px;position:sticky;top:0;background:#0a0a23">烤箱桿位明細</h3>
+      <div id="ovenRodList" style="font-size:9px;line-height:1.6"></div>
+    </div>
+    <div style="overflow-y:auto;padding:4px 8px;border-left:1px solid #0f3460">
+      <h3 style="font-size:10px;color:#e94560;margin-bottom:3px;position:sticky;top:0;background:#0a0a23">Excel 理論比較</h3>
+      <div id="excelTable" style="font-size:9px;line-height:1.6"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ================================================================
+//  PARAMETERS
+// ================================================================
+let P = {};
+function readP(){
+  const g=id=>parseFloat(document.getElementById(id).value)||0;
+  // 動作間隔: 真實情況每個動作之間都會有切換/緩衝時間,由使用者設定 (預設 1 秒)
+  const GAP = g('p_action_gap');
+  const a=id=>g(id)+GAP; // 動作型參數: 自動補上動作間隔
+  P={
+    // Input cart
+    cartInTime:a('p_cart_in_time'), cartPieces:g('p_cart_pieces'),
+    rackRotateN:g('p_rack_rotate_n'), rackRotateTime:a('p_rack_rotate_time'),
+    // Arm A
+    armAPhoto:a('p_armA_photo'), armAPick:a('p_armA_pick'), armAPhotoN:g('p_armA_photo_n'),
+    get armAPerPiece(){ return this.armAPick + this.armAPhoto/this.armAPhotoN; },
+    // Conveyor 1
+    conv1Go:a('p_conv1_go'), conv1Back:a('p_conv1_back'),
+    get conv1Total(){ return this.conv1Go+this.conv1Back; },
+    // Arm O
+    armOToWash:a('p_armO_to_wash'), armOToRack:a('p_armO_to_rack'),
+    get armOTotal(){ return this.armOToWash+this.armOToRack; },
+    // Washer (迴轉步進式) — washClean 為機台處理時間,不加間隔; washMove 為動作
+    washClean:g('p_wash_clean'), washMove:a('p_wash_move'), washSlots:g('p_wash_slots'),
+    get washStep(){ return this.washClean+this.washMove; },
+    get washTotal(){ return this.washStep; }, // 穩態CT=每步時間
+    // Arm 1
+    arm1Move:a('p_arm1_move'), plat1Cap:g('p_plat1_cap'),
+    // Arm 2
+    arm2ToStr:a('p_arm2_to_str'), arm2ToPre:a('p_arm2_to_pre'),
+    get arm2Total(){ return this.arm2ToStr+this.arm2ToPre; },
+    // Strengthener (處理時間,不加間隔)
+    strCT:g('p_str_ct'), strN:g('p_str_n'),  // 每台1片, CT=strCT
+    // Pre-bake (步進式: preCT = 每步移動時間, 屬於動作型)
+    preCT:a('p_pre_ct'), preSlots:g('p_pre_slots'),
+    // Arm 3
+    arm3ToP2:a('p_arm3_to_p2'), arm3ToOut:a('p_arm3_to_out'),
+    get arm3Total(){ return this.arm3ToP2+this.arm3ToOut; },
+    // Arm L
+    armLIn:a('p_armL_in'), armLOut:a('p_armL_out'), batch:g('p_batch'),
+    get armLTotal(){ return this.armLIn+this.armLOut; },
+    // Oven (烘烤時間,不加間隔)
+    ovenRods:g('p_ovenRods'), // 烤箱總桿數 (37)
+    bakeOk:g('p_bakeOk')*60, bakeOver:g('p_bakeOver')*60,
+    // Conveyor 2
+    conv2Go:a('p_conv2_go'), conv2Back:a('p_conv2_back'),
+    get conv2Total(){ return this.conv2Go+this.conv2Back; },
+    // Arm B
+    armBPhoto:a('p_armB_photo'), armBPick:a('p_armB_pick'), armBPhotoN:g('p_armB_photo_n'),
+    get armBPerPiece(){ return this.armBPick + this.armBPhoto/this.armBPhotoN; },
+    // Output cart
+    cartOutTime:a('p_cart_out_time'), cartOutPieces:g('p_cart_out_pieces'),
+    rackOutRotateN:g('p_rack_out_rotate_n'), rackOutRotateTime:a('p_rack_out_rotate_time'),
+    // Sim
+    simH:g('p_simH'), extra:g('p_extra'),
+  };
+  // Cart effective time (直接使用使用者設定值 + 額外延遲)
+  P.cartInEffective = P.cartInTime + P.extra;
+  P.cartOutEffective = P.cartOutTime + P.extra;
+
+  // Phase calculations for oven cycle
+  P.phase1 = Math.max(P.armLOut, P.arm3ToP2 * P.batch);  // MAX(120, 35*4=140)=140
+  P.phase2 = Math.max(P.armLIn, P.arm3ToOut * P.batch);   // MAX(120, 35*4=140)=140
+  P.cycle = P.phase1 + P.phase2; // 280
+  P.theoryUPH = P.batch / P.cycle * 3600;
+
+  // Net cart delay (buffer absorption)
+  const arm3Cycle = P.arm3Total; // 70s per piece full cycle
+  const bufPieces = 2;
+  const cartTotal = P.cartInEffective + P.armAPick + P.armAPhoto/P.armAPhotoN;
+  P.netCartDelay = Math.max(0, P.cartInEffective - bufPieces * arm3Cycle);
+  P.netCartDelayOut = Math.max(0, P.cartOutEffective - bufPieces * arm3Cycle);
+
+  // Upstream bottleneck (per-piece time for each station)
+  P.upstreamCTs = {
+    '手臂A': P.armAPerPiece + P.conv1Total, // 41.88+20=61.88 → combined with conveyor
+    '手臂O': P.armOTotal,           // 60
+    '清洗機': P.washTotal,           // 60
+    '手臂1': P.arm1Move,            // 30
+    '手臂2': P.arm2Total,           // 65
+    '強化機': P.strCT,               // 120s per machine (1 piece each)
+    '預烘機': P.preCT,               // 65
+  };
+}
+
+// ================================================================
+//  SIMULATION STATE - Pipeline Model (每片從入料貨架開始流動)
+// ================================================================
+const S = {
+  running:false, time:0, speed:100, lastTS:0,
+  // 烤箱
+  ovenQ:[], rodId:0,
+  totalIn:0, totalOut:0,
+  inCartCnt:0, outCartCnt:0,
+  ccIn:0, ccOut:0, ccTime:0,
+  obEvents:0, obPieces:0, maxBake:0,
+  ooMode:false, ooStart:0, ooTotal:0,
+  uphLog:[], events:[], _uphT:0,
+  // 管線 buffers (每個位置的片數)
+  buf:{},
+  // 站點狀態 (用於顯示)
+  stations:{},
+  actionLog:{},
+};
+
+const STATION_DEFS = [
+  {id:'inputCart', name:'入料小車'},{id:'armA', name:'手臂A'},
+  {id:'conv1', name:'高空滑台1'},{id:'armO', name:'手臂O'},
+  {id:'washer', name:'清洗機'},{id:'bufferRack', name:'暫存架'},
+  {id:'arm1', name:'手臂1'},{id:'platform1', name:'轉接平台1'},
+  {id:'arm2', name:'手臂2'},{id:'strengthen', name:'強化機'},
+  {id:'prebake', name:'預烘機'},{id:'arm3', name:'手臂3'},
+  {id:'platform2', name:'轉接平台2'},{id:'armL', name:'手臂L'},
+  {id:'oven', name:'烤箱'},{id:'conv2', name:'高空滑台2'},
+  {id:'armB', name:'手臂B'},{id:'outputCart', name:'出料小車'},
+];
+
+function setSt(id,state,action,timer){
+  const st=S.stations[id]; if(!st)return;
+  st.state=state; st.action=action||''; st.timer=timer||0;
+}
+
+function initSim(){
+  S.stations={}; S.actionLog={};
+  S.utilStarted=false; S.utilStartTime=0; // 烤箱首次出料 + 手臂L放到平台2 完成後才開始計算利用率
+  STATION_DEFS.forEach(d=>{
+    S.stations[d.id]={state:'idle',timer:0,action:''};
+    S.actionLog[d.id]={busy:0,idle:0,started:false};
+  });
+  // 管線 buffers
+  S.buf={
+    cart:999,        // 入料貨架 (無限)
+    conv1:0,         // 滑台1 末端等待被手臂O取
+    washDone:0,      // 清洗完成等待手臂O取出
+    rack:0,          // 暫存架 (容量4)
+    plat1:0,         // 轉接平台1
+    strDone:0,       // 強化完成等待手臂2取出
+    preDone:0,       // 預烘完成等待手臂3取出
+    plat2Lower:0,    // 轉接平台2 下層 (手臂3放入, 容量4, 滿4才入爐)
+    plat2Upper:0,    // 轉接平台2 上層 (手臂L出爐放入, 容量4, 全空才出爐)
+    conv2:0,         // 滑台2 末端等待被手臂B取
+    out:0,           // 出料完成
+  };
+  // 機台加工計時器
+  S.mach={
+    // 高空滑台1: 2台小車獨立 (state: ready→going→arrived→returning→ready)
+    conv1:[{state:'ready',timer:0},{state:'ready',timer:0}],
+    washer:{stepTimer:0,queue:[],exitReady:0,phase:'cleaning',slotOccupied:false},  // slotOccupied: 入口位置已放片，要等下次移動才能再放
+    str:[],   // 每台強化機
+    prebake:{slots:[],phase:'ready',stepTimer:0}, // 步進式: 入口=slots[0], 出口=slots[last]
+    // 高空滑台2: 2台小車獨立 (state: ready→going→arrived→returning→ready)
+    conv2:[{state:'ready',timer:0},{state:'ready',timer:0}],
+  };
+  for(let i=0;i<P.strN;i++) S.mach.str.push({timer:0,has:false,done:false});
+  S.mach.prebake.slots=new Array(P.preSlots).fill(null);
+  S.mach.prebake.phase='ready';
+  S.mach.prebake.stepTimer=0;
+  // 手臂L 連續動作計數 (入料/出料都是連續4片)
+  S.armLCount=0; // 連續操作已完成幾片
+  S.armLMode=''; // 'loading'|'unloading'|''
+  // 手臂
+  S.arms={};
+  ['armA','armO','arm1','arm2','arm3','armL','armB'].forEach(id=>{
+    S.arms[id]={state:'idle',timer:0,action:'',queue:[]};
+  });
+  // 烤箱
+  S.ovenQ=[]; S.rodId=0;
+  S.totalIn=0;S.totalOut=0;
+  S.inCartCnt=0;S.outCartCnt=0;
+  S.ccIn=0;S.ccOut=0;S.ccTime=0;
+  S.obEvents=0;S.obPieces=0;S.maxBake=0;
+  S.ooMode=false;S.ooTotal=0;
+  S.uphLog=[];S.events=[];S._uphT=0;
+  // 穩態UPH: 從手臂B首次動作後開始計算
+  S.armBFirstTime=0; S.armBFirstOut=0; S.armBStarted=false;
+  // 貨架旋轉標記 (防止重複觸發)
+  S._inRotated=false; S._outRotated=false;
+  // Phase 1: 拍照計數器 (每N片拍一次)
+  S.armAPhotoCnt=0; S.armBPhotoCnt=0;
+  // Phase 2: 每站產出計數器
+  S.pieceCnt={armA:0,armO:0,washer:0,arm1:0,arm2_in:0,arm2_out:0,strengthen:0,prebake:0,arm3_in:0,arm3_out:0,armL_in:0,armL_out:0,armB:0};
+  // Phase 3: 瓶頸ID
+  S.bottleneckId='';
+}
+
+// ================================================================
+//  手臂動作系統：一次只做一件事，做完才接下一個
+// ================================================================
+function armBusy(id){ return S.arms[id].state!=='idle'; }
+function armStart(id, actions){
+  const arm=S.arms[id]; if(arm.state!=='idle') return false;
+  arm.queue=actions.slice(1);
+  arm.action=actions[0].action; arm.timer=actions[0].duration; arm.state='busy';
+  setSt(id,'working',actions[0].action,actions[0].duration);
+  return true;
+}
+function armCartChange(id, duration){
+  const arm=S.arms[id];
+  arm.state='cartchange'; arm.timer=duration; arm.action='等待換車';
+  setSt(id,'cart_change','等待換車',duration);
+}
+
+// ================================================================
+//  SIMULATION STEP - 管線模型
+// ================================================================
+function simStep(dt){
+  const B=S.buf, M=S.mach;
+
+  // === 1. 更新手臂計時器 ===
+  for(const[id,arm] of Object.entries(S.arms)){
+    if(arm.state==='idle') continue;
+    arm.timer-=dt;
+    S.stations[id].timer=Math.max(0,arm.timer);
+    if(arm.timer<=0){
+      if(arm.state==='cartchange'){
+        arm.state='idle';arm.action='';setSt(id,'idle','');
+      } else if(arm.queue.length>0){
+        const next=arm.queue.shift();
+        arm.action=next.action;arm.timer=next.duration;arm.state='busy';
+        setSt(id,'working',next.action,next.duration);
+        if(next.onDone) next.onDone();
+      } else {
+        if(arm._onComplete){arm._onComplete();arm._onComplete=null;}
+        arm.state='idle';arm.action='';setSt(id,'idle','');
+      }
+    }
+  }
+
+  // === 2. 更新機台計時器 ===
+  // 高空滑台1: 2台小車獨立 (ready→going→arrived→returning→ready)
+  M.conv1.forEach(car=>{
+    if(car.state==='going'){car.timer-=dt;if(car.timer<=0){car.state='arrived';B.conv1++;}}
+    else if(car.state==='returning'){car.timer-=dt;if(car.timer<=0){car.state='ready';}}
+  });
+  const c1going=M.conv1.some(c=>c.state==='going');
+  const c1ret=M.conv1.some(c=>c.state==='returning');
+  if(c1going) setSt('conv1','working',`去程${B.conv1>0?' +'+B.conv1+'片到達':''}`);
+  else if(c1ret) setSt('conv1','working',`回程${B.conv1>0?' +'+B.conv1+'片到達':''}`);
+  else if(B.conv1>0) setSt('conv1','idle',`${B.conv1}片到達`);
+  else setSt('conv1','idle','');
+
+  // 清洗機 (迴轉步進式: cleaning可取放 → moving不可取放 → 步進 → cleaning...)
+  {
+    const w=M.washer;
+    if(w.queue.length>0 || w.exitReady>0){
+      w.stepTimer-=dt;
+      if(w.phase==='cleaning'){
+        if(w.stepTimer<=0){
+          if(w.exitReady>0){
+            // 出口有片未取，不能進入移動階段
+            w.stepTimer=0;
+            setSt('washer','blocked',`等待取料才能移動 ${w.queue.length+w.exitReady}/${P.washSlots}格`);
+          } else {
+            // 清洗完 → 進入移動階段
+            w.phase='moving';w.stepTimer=P.washMove;
+            setSt('washer','working',`移動中 ${Math.max(0,w.stepTimer).toFixed(0)}s (不可取放)`);
+          }
+        } else {
+          if(w.exitReady>0) setSt('washer','blocked',`等待取料 ${w.queue.length+w.exitReady}/${P.washSlots}格 清洗${Math.max(0,w.stepTimer).toFixed(0)}s`);
+          else setSt('washer','working',`清洗中 ${w.queue.length}/${P.washSlots}格 ${Math.max(0,w.stepTimer).toFixed(0)}s`);
+        }
+      } else {
+        // moving phase
+        if(w.stepTimer<=0){
+          // 移動完成 → 步進：所有片前進一格
+          w.queue.forEach(p=>p.stepsLeft--);
+          while(w.queue.length>0 && w.queue[0].stepsLeft<=0){
+            w.queue.shift();
+            w.exitReady++;
+            B.washDone++;
+          }
+          // 回到清洗階段，入口位置重新可用
+          w.phase='cleaning';w.stepTimer=P.washClean;w.slotOccupied=false;
+          if(w.exitReady>0) setSt('washer','blocked',`步進完成 待取料 ${w.queue.length+w.exitReady}/${P.washSlots}格`);
+          else setSt('washer','working',`清洗中 ${w.queue.length}/${P.washSlots}格 ${Math.max(0,w.stepTimer).toFixed(0)}s`);
+        } else {
+          setSt('washer','working',`移動中 ${Math.max(0,w.stepTimer).toFixed(0)}s (不可取放)`);
+        }
+      }
+    } else {
+      w.phase='cleaning';
+      setSt('washer','idle','空');
+    }
+  }
+
+  // 強化機 (各台獨立, done=完成待取, 片仍佔機台)
+  M.str.forEach(s=>{if(s.has&&!s.done){s.timer-=dt;if(s.timer<=0){s.done=true;B.strDone++;}}});
+  {const strBaking=M.str.filter(s=>s.has&&!s.done).length;
+  const strDone=M.str.filter(s=>s.has&&s.done).length;
+  if(strBaking>0||strDone>0) setSt('strengthen','working',`強化${strBaking} 待取${strDone}/${P.strN}台`); else setSt('strengthen','idle','');}
+
+  // 預烘機 (步進式: 入口 slots[0] = arm2 放, 出口 slots[last] = arm3 取, 移動中入出口都不能取放)
+  {
+    const pre=M.prebake;
+    const last=pre.slots.length-1;
+    if(pre.phase==='moving'){
+      pre.stepTimer-=dt;
+      if(pre.stepTimer<=0){
+        // 步進: 整列往出口推一格 (R1+R2 已保證 slots[last]==null 且 slots[0]!=null)
+        for(let i=last;i>0;i--) pre.slots[i]=pre.slots[i-1];
+        pre.slots[0]=null;
+        pre.phase='ready';
+      }
+      setSt('prebake','working',`步進中 ${Math.max(0,pre.stepTimer).toFixed(0)}s (不可取放)`);
+    } else {
+      // ready 階段 → 觸發條件: 入口被擋(slots[0]有料) + 出口空(slots[last]空)
+      if(pre.slots[0]!==null && pre.slots[last]===null){
+        pre.phase='moving';
+        pre.stepTimer=P.preCT;
+      }
+      const cnt=pre.slots.filter(s=>s!==null).length;
+      const exitReady=pre.slots[last]!==null;
+      if(cnt>0) setSt('prebake','working',`預烘${cnt}/${P.preSlots}格${exitReady?' 出口待取':''}`);
+      else setSt('prebake','idle','');
+    }
+    B.preDone=pre.slots[last]!==null?1:0; // arm3 取料條件用 (出口是否有料)
+  }
+
+  // 高空滑台2: 2台小車獨立 (ready→going→arrived→returning→ready)
+  M.conv2.forEach(car=>{
+    if(car.state==='going'){car.timer-=dt;if(car.timer<=0){car.state='arrived';B.conv2++;}}
+    else if(car.state==='returning'){car.timer-=dt;if(car.timer<=0){car.state='ready';}}
+  });
+  const c2going=M.conv2.some(c=>c.state==='going');
+  const c2ret=M.conv2.some(c=>c.state==='returning');
+  if(c2going) setSt('conv2','working',`去程${B.conv2>0?' +'+B.conv2+'片到達':''}`);
+  else if(c2ret) setSt('conv2','working',`回程${B.conv2>0?' +'+B.conv2+'片到達':''}`);
+  else if(B.conv2>0) setSt('conv2','idle',`${B.conv2}片到達`);
+  else setSt('conv2','idle','');
+
+  // 利用率 (僅在烤箱首次出料、手臂L放到平台2完成後開始計算)
+  if(S.utilStarted){
+    for(const[id,st] of Object.entries(S.stations)){
+      const al=S.actionLog[id];
+      if(al){
+        const isBusy=st.state==='working'||st.state==='cart_change';
+        if(!al.started&&isBusy) al.started=true;
+        if(al.started){if(isBusy)al.busy+=dt;else al.idle+=dt;}
+      }
+    }
+  }
+
+  // === 3. 手臂決策 (只在idle時) ===
+
+  // -- 入料: 換車(32片) or 旋轉貨架(16片) --
+  if(S.inCartCnt>=P.cartPieces && !armBusy('armA')){
+    // 換車 (含拍照定位，不旋轉)
+    S.inCartCnt=0;S.armAPhotoCnt=0;S.ccIn++;S.ccTime+=P.cartInEffective;
+    armCartChange('armA',P.cartInEffective);
+    setSt('inputCart','cart_change','換車中',P.cartInEffective);
+    addEv('info','入料換車',`第${S.ccIn}次`);
+  } else if(P.rackRotateN>0 && S.inCartCnt>0 && S.inCartCnt<P.cartPieces && S.inCartCnt%P.rackRotateN===0 && !armBusy('armA') && !S._inRotated){
+    // 旋轉貨架
+    S._inRotated=true;
+    armCartChange('armA',P.rackRotateTime);
+    setSt('inputCart','cart_change','旋轉貨架',P.rackRotateTime);
+    addEv('info','入料旋轉',`第${S.inCartCnt}片`);
+  }
+  // -- 出料: 換車 or 旋轉貨架 --
+  if(S.outCartCnt>=P.cartOutPieces && !armBusy('armB')){
+    S.outCartCnt=0;S.armBPhotoCnt=0;S.ccOut++;S.ccTime+=P.cartOutEffective;
+    armCartChange('armB',P.cartOutEffective);
+    setSt('outputCart','cart_change','換車中',P.cartOutEffective);
+    addEv('info','出料換車',`第${S.ccOut}次`);
+  } else if(P.rackOutRotateN>0 && S.outCartCnt>0 && S.outCartCnt<P.cartOutPieces && S.outCartCnt%P.rackOutRotateN===0 && !armBusy('armB') && !S._outRotated){
+    S._outRotated=true;
+    armCartChange('armB',P.rackOutRotateTime);
+    setSt('outputCart','cart_change','旋轉貨架',P.rackOutRotateTime);
+    addEv('info','出料旋轉',`第${S.outCartCnt}片`);
+  }
+
+  // -- 手臂A: 貨架→滑台1 (找空車, 下游不滿載) --
+  if(!armBusy('armA') && B.cart>0){
+    const freeCar=M.conv1.find(c=>c.state==='ready');
+    if(freeCar){
+      const actions=[];
+      if(S.armAPhotoCnt % P.armAPhotoN === 0) actions.push({action:'拍照定位',duration:P.armAPhoto});
+      actions.push({action:'取推車→放滑台',duration:P.armAPick});
+      armStart('armA',actions);
+      S.arms.armA._onComplete=()=>{
+        freeCar.state='going';freeCar.timer=P.conv1Go;
+        setSt('conv1','working','去程');S.inCartCnt++;S._inRotated=false;S.armAPhotoCnt++;
+        S.pieceCnt.armA++;
+      };
+    }
+  }
+
+  // -- 手臂O: 清洗機移動中不可取放，清洗中才可操作，每次移動後入口只能放一片 --
+  if(!armBusy('armO') && M.washer.phase!=='moving'){
+    if(M.washer.exitReady>0 && B.rack<4){
+      // 優先取出完成品 (出口有片必須先取，清洗機才能繼續移動)
+      armStart('armO',[{action:'取清洗機→暫存架',duration:P.armOToRack}]);
+      S.arms.armO._onComplete=()=>{M.washer.exitReady--;B.washDone--;B.rack++;S.pieceCnt.armO++;};
+    } else if(B.conv1>0 && !M.washer.slotOccupied && M.washer.queue.length<P.washSlots && M.washer.exitReady===0){
+      // 放入新片 (入口空 且 格數未滿 且 出口已清空)
+      armStart('armO',[{action:'取滑台→清洗機',duration:P.armOToWash}]);
+      S.arms.armO._onComplete=()=>{
+        B.conv1--;
+        const arrived=M.conv1.find(c=>c.state==='arrived');
+        if(arrived){arrived.state='returning';arrived.timer=P.conv1Back;}
+        M.washer.queue.push({stepsLeft:P.washSlots});
+        M.washer.slotOccupied=true;  // 入口已佔，等下次移動才能再放
+        // 如果是第一片，啟動清洗計時
+        if(M.washer.queue.length===1 && M.washer.stepTimer<=0){M.washer.phase='cleaning';M.washer.stepTimer=P.washClean;}
+        S.pieceCnt.washer++;
+      };
+    }
+  }
+
+  // -- 手臂1: 暫存架→轉接平台1 (暫存架有料就取, 平台1未滿) --
+  if(!armBusy('arm1') && B.rack>0 && B.plat1<P.plat1Cap){
+    armStart('arm1',[{action:'暫存架→平台1',duration:P.arm1Move}]);
+    S.arms.arm1._onComplete=()=>{B.rack--;B.plat1++;S.pieceCnt.arm1++;};
+  }
+
+  // -- 手臂2: 優先出(強化完→預烘)，再進(平台1有料→強化) --
+  if(!armBusy('arm2')){
+    const doneStr=M.str.find(s=>s.has&&s.done);
+    // 預烘機入口可放: 必須在 ready 階段 且 slots[0] 為空
+    const preCanIn = M.prebake.phase==='ready' && M.prebake.slots[0]===null;
+    if(doneStr && preCanIn){
+      armStart('arm2',[{action:'取強化→預烘',duration:P.arm2ToPre}]);
+      S.arms.arm2._onComplete=()=>{
+        doneStr.has=false;doneStr.done=false;B.strDone--;
+        // 放到入口前再次確認 (動作期間預烘機可能進入 moving)
+        if(M.prebake.phase==='ready' && M.prebake.slots[0]===null){
+          M.prebake.slots[0]={};
+        }
+        S.pieceCnt.arm2_out++;S.pieceCnt.prebake++;
+      };
+    } else if(B.plat1>0){
+      const freeStr=M.str.find(s=>!s.has);
+      if(freeStr){
+        armStart('arm2',[{action:'取平台1→強化',duration:P.arm2ToStr}]);
+        S.arms.arm2._onComplete=()=>{B.plat1--;freeStr.has=true;freeStr.timer=P.strCT;S.pieceCnt.arm2_in++;S.pieceCnt.strengthen++;};
+      }
+    }
+    // 顯示等待原因
+    if(!armBusy('arm2')){
+      if(doneStr && !preCanIn) setSt('arm2','idle','等待預烘機入口');
+      else if(B.plat1>0 && !M.str.find(s=>!s.has)) setSt('arm2','idle','強化機全滿');
+      else if(!doneStr && B.plat1===0) setSt('arm2','idle','等待物料');
+    }
+  }
+
+  // -- 手臂3: 優先出(上層→滑台2)，但若滑台2無空車則改去取預烘出料 (避免空轉, 提升利用率) --
+  if(!armBusy('arm3')){
+    const freeCar2=M.conv2.find(c=>c.state==='ready');
+    const canDrain = B.plat2Upper>0 && !!freeCar2;
+    const preLast=M.prebake.slots.length-1;
+    const canFill = M.prebake.phase==='ready' && M.prebake.slots[preLast]!==null && B.plat2Lower<P.batch && !S.ooMode;
+    if(canDrain){
+      // 上層有料且有空車 → 取出放滑台2
+      armStart('arm3',[{action:'取平台2上→出料位',duration:P.arm3ToOut}]);
+      S.arms.arm3._onComplete=()=>{B.plat2Upper--;freeCar2.state='going';freeCar2.timer=P.conv2Go;setSt('conv2','working','去程');S.pieceCnt.arm3_out++;};
+    } else if(canFill){
+      // 預烘出口有料 → 取出放平台2下層 (未滿4)
+      armStart('arm3',[{action:'取預烘→平台2下',duration:P.arm3ToP2}]);
+      S.arms.arm3._onComplete=()=>{
+        const last=M.prebake.slots.length-1;
+        // 動作完成時再次確認 (動作期間預烘機可能進入 moving)
+        if(M.prebake.phase==='ready' && M.prebake.slots[last]!==null){
+          M.prebake.slots[last]=null;
+          B.plat2Lower++;S.pieceCnt.arm3_in++;
+        }
+      };
+    }
+  }
+
+  // -- 手臂L + 烤箱: 連續4片操作 --
+  if(!armBusy('armL')){
+    const oldestReady=S.ovenQ.length>0&&(S.time-S.ovenQ[0].enterTime)>=P.bakeOk;
+    const needUnload=(oldestReady||S.ooMode)&&S.ovenQ.length>0;
+
+    // 出爐條件: 上層全空 且 有桿到期
+    if(needUnload && B.plat2Upper===0){
+      // 連續出4片 (1桿) → 手臂L做4次取放, 用armLOut秒完成整桿
+      armStart('armL',[{action:`出料(桿→上層) 1桿/${P.batch}片`,duration:P.armLOut}]);
+      S.arms.armL._onComplete=()=>{
+        if(S.ovenQ.length===0)return;
+        const rod=S.ovenQ.shift();
+        const bk=S.time-rod.enterTime;
+        S.maxBake=Math.max(S.maxBake,bk);
+        if(bk>P.bakeOver){
+          rod.overBaked=true;S.obEvents++;S.obPieces+=rod.pieces;
+          addEv('warn','過烘!',`桿#${rod.id} ${(bk/60).toFixed(1)}min`);
+          if(!S.ooMode){S.ooMode=true;S.ooStart=S.time;addEv('warn','只出不進','手臂L停止入料');}
+        }
+        B.plat2Upper=rod.pieces; // 一次放滿上層
+        S.totalOut+=rod.pieces;S.outCartCnt+=rod.pieces;S.pieceCnt.armL_out+=rod.pieces;
+        // 觸發利用率開始計算 (烤箱首次出料 + 手臂L放到平台2 完成)
+        if(!S.utilStarted){
+          S.utilStarted=true; S.utilStartTime=S.time;
+          Object.values(S.actionLog).forEach(al=>{al.busy=0;al.idle=0;al.started=false;});
+          addEv('info','利用率起算',`首次出料完成 @ ${(S.time/60).toFixed(1)}min`);
+        }
+        // Bug 1.2: 解除只出不進 — 必須所有桿都 < bakeOver (不只是 bakeOk)
+        if(S.ooMode){
+          const stillOver=S.ovenQ.some(r=>(S.time-r.enterTime)>=P.bakeOver);
+          if(!stillOver||S.ovenQ.length===0){
+            S.ooTotal+=S.time-S.ooStart;S.ooMode=false;
+            addEv('ok','恢復正常',`只出不進${((S.time-S.ooStart)/60).toFixed(1)}min`);
+          }
+        }
+      };
+    }
+    // 入爐條件: 下層滿4片 且 烤箱未滿 且 非只出不進
+    else if(B.plat2Lower>=P.batch && S.ovenQ.length<P.ovenRods && !S.ooMode){
+      armStart('armL',[{action:`入料(下層→桿) 1桿/${P.batch}片`,duration:P.armLIn}]);
+      S.arms.armL._onComplete=()=>{
+        B.plat2Lower-=P.batch;
+        S.ovenQ.push({id:S.rodId++,pieces:P.batch,enterTime:S.time});
+        S.totalIn+=P.batch;S.pieceCnt.armL_in+=P.batch;
+      };
+    }
+  }
+
+  // 烤箱顯示
+  if(S.ovenQ.length>0) setSt('oven',S.ooMode?'blocked':'working',
+    S.ooMode?'過烘-只出不進':`烘烤 ${S.ovenQ.length}/${P.ovenRods}桿`);
+  else setSt('oven','idle','空');
+
+  // 過烘偵測
+  if(S.ovenQ.length>0&&!S.ooMode){
+    const old=S.time-S.ovenQ[0].enterTime;
+    if(old>=P.bakeOver){S.ooMode=true;S.ooStart=S.time;addEv('warn','只出不進',`最老桿已烘${(old/60).toFixed(1)}min`);}
+  }
+
+  // -- 手臂B: 滑台2→出料貨架 --
+  if(!armBusy('armB') && B.conv2>0){
+    // 記錄手臂B首次動作時間
+    if(!S.armBStarted){S.armBStarted=true;S.armBFirstTime=S.time;S.armBFirstOut=S.totalOut;addEv('info','手臂B首動',`穩態UPH起算 t=${(S.time/60).toFixed(1)}min`);}
+    const actB=[];
+    if(S.armBPhotoCnt % P.armBPhotoN === 0) actB.push({action:'拍照定位',duration:P.armBPhoto});
+    actB.push({action:'取滑台→放推車',duration:P.armBPick});
+    armStart('armB',actB);
+    S.arms.armB._onComplete=()=>{
+      B.conv2--;
+      const arrived2=M.conv2.find(c=>c.state==='arrived');
+      if(arrived2){arrived2.state='returning';arrived2.timer=P.conv2Back;}
+      B.out++;S.outCartCnt++;S._outRotated=false;S.armBPhotoCnt++;S.pieceCnt.armB++;
+    };
+  }
+
+  // === 4. Buffer顯示 ===
+  setSt('bufferRack',B.rack>0?'working':'idle',B.rack>0?`${B.rack}/4片`:'');
+  setSt('platform1',B.plat1>0?'working':'idle',B.plat1>0?`${B.plat1}片`:'');
+  setSt('platform2',
+    (B.plat2Lower>0||B.plat2Upper>0)?'working':'idle',
+    `下${B.plat2Lower}/4 上${B.plat2Upper}/4`);
+  if(S.stations.inputCart.state!=='cart_change') setSt('inputCart','idle',`${S.inCartCnt}/${P.cartPieces}`);
+  if(S.stations.outputCart.state!=='cart_change') setSt('outputCart','idle',`${S.outCartCnt}/${P.cartOutPieces}`);
+
+  // UPH log
+  S._uphT-=dt;
+  if(S._uphT<=0&&S.time>60){S._uphT=30;S.uphLog.push({t:S.time,uph:S.totalOut/S.time*3600});}
+}
+
+function addEv(type,label,detail){
+  S.events.push({time:S.time,type,label,detail});
+  const log=document.getElementById('eLog');
+  const el=document.createElement('div');el.className='ei';
+  el.innerHTML=`<span class="t">${(S.time/60).toFixed(1)}m</span><span class="tp ${type}">${label}</span><span class="d">${detail}</span>`;
+  log.appendChild(el);
+  if(log.children.length>400)log.removeChild(log.children[1]);
+  log.scrollTop=log.scrollHeight;
+}
+
+// ================================================================
+//  LAYOUT RENDERER (matching layout2.png)
+// ================================================================
+// Layout matching layout2.png:
+// TOP: 高空滑台2 (出料) ─ 手臂B ─ 出料貨架
+// UPPER-LEFT: 烤箱 room, 手臂L, 轉接平台2(vertical), 手臂3
+// CENTER: 清洗機, 手臂O, 手臂1, 轉接平台1, 手臂2, 強化機x4 花型, 預烘機
+// BOTTOM: 高空滑台1 (入料) ─ 手臂A ─ 入料貨架
+const EQ={
+  // === TOP: 高空滑台2 (出料) ===
+  conv2:      {x:170,y:25,  w:540,h:22,  label:'高空滑台2 (出料)'},
+  armB:       {x:725,y:20,  w:32, h:32,  label:'手臂B', isArm:true},
+  outputCart:  {x:790,y:10,  w:70, h:105, label:'出料\n貨架', isRack:true},
+  // === UPPER LEFT: 烤箱 room ===
+  oven:       {x:25, y:60,  w:130,h:185, label:'烤箱',  isOven:true},
+  // === 手臂L → 轉接平台2(直立) → 手臂3 ===
+  armL:       {x:168,y:130, w:34, h:34,  label:'手臂L', isArm:true},
+  platform2:  {x:215,y:100, w:35, h:85,  label:'轉接\n平台2'},
+  arm3:       {x:265,y:130, w:34, h:34,  label:'手臂3', isArm:true},
+  // === 預烘機 (手臂3下方) ===
+  prebake:    {x:235,y:200, w:80, h:38,  label:'預烘機'},
+  // === CENTER-LEFT: 清洗機 + 手臂O + 暫存架 (依 layout2.png) ===
+  washer:     {x:30, y:380, w:105,h:50,  label:'清洗機'},
+  armO:       {x:148,y:395, w:32, h:32,  label:'手臂O', isArm:true},
+  bufferRack: {x:148,y:340, w:45, h:28,  label:'暫存架'},  // 手臂O上方，靠近手臂1
+  // === CENTER: 手臂1, 轉接平台1 ===
+  arm1:       {x:205,y:345, w:30, h:30,  label:'手臂1', isArm:true},
+  platform1:  {x:248,y:340, w:55, h:30,  label:'轉接平台1'},
+  // === CENTER: 手臂2, 強化機x4 花型 ===
+  arm2:       {x:310,y:260, w:38, h:38,  label:'手臂2', isArm:true},
+  strengthen: {x:370,y:130, w:280,h:280, label:'強化機x4', isGroup:true},
+  // === BOTTOM: 高空滑台1 (入料) ===
+  conv1:      {x:170,y:440, w:540,h:22,  label:'高空滑台1 (入料)'},
+  armA:       {x:725,y:435, w:32, h:32,  label:'手臂A', isArm:true},
+  inputCart:   {x:790,y:370, w:70, h:105, label:'入料\n貨架', isRack:true},
+  // === 額外右側貨架 (圖中有多排) ===
+  extraRack1: {x:870,y:10,  w:65, h:105, label:'貨架', isRack:true},
+  extraRack2: {x:870,y:130, w:65, h:105, label:'貨架', isRack:true},
+  extraRack3: {x:870,y:250, w:65, h:105, label:'貨架', isRack:true},
+  extraRack4: {x:870,y:370, w:65, h:105, label:'貨架', isRack:true},
+};
+
+// 每條線 = 手臂從哪搬到哪 (站→手臂→站)
+const FLOW=[
+  // 入料段: 貨架 → 手臂A → 高空滑台1
+  ['inputCart','armA'],['armA','conv1'],
+  // 手臂O: 滑台1→清洗機, 清洗機→暫存架
+  ['conv1','armO'],['armO','washer'],
+  ['washer','armO'],['armO','bufferRack'],
+  // 手臂1: 暫存架→轉接平台1
+  ['bufferRack','arm1'],['arm1','platform1'],
+  // 手臂2: 轉接平台1→強化機, 強化機→預烘機
+  ['platform1','arm2'],['arm2','strengthen'],
+  ['strengthen','arm2'],['arm2','prebake'],
+  // 手臂3入: 預烘機→轉接平台2
+  ['prebake','arm3'],['arm3','platform2'],
+  // 手臂L: 轉接平台2→烤箱(入), 烤箱→轉接平台2(出)
+  ['platform2','armL'],['armL','oven'],
+  ['oven','armL'],['armL','platform2'],
+  // 手臂3出: 轉接平台2→高空滑台2
+  ['platform2','arm3'],['arm3','conv2'],
+  // 手臂B: 高空滑台2→出料貨架
+  ['conv2','armB'],['armB','outputCart'],
+];
+
+let canvas,ctx,cW,cH,sc,oX,oY;
+function initCanvas(){canvas=document.getElementById('lc');ctx=canvas.getContext('2d');resizeC();}
+function resizeC(){
+  const r=canvas.parentElement.getBoundingClientRect(),d=window.devicePixelRatio||1;
+  canvas.width=r.width*d;canvas.height=r.height*d;
+  canvas.style.width=r.width+'px';canvas.style.height=r.height+'px';
+  ctx.setTransform(d,0,0,d,0,0);
+  cW=r.width;cH=r.height;
+  const sx=cW/960,sy=cH/500;
+  sc=Math.min(sx,sy)*0.94;
+  oX=(cW-960*sc)/2;oY=(cH-500*sc)/2;
+}
+function tx(x){return x*sc+oX;}
+function ty(y){return y*sc+oY;}
+function ts(s){return s*sc;}
+
+function stCol(id){
+  const s=S.stations[id];if(!s)return'#2a2a4a';
+  switch(s.state){case'working':return'#4ecca3';case'blocked':return'#e94560';case'cart_change':return'#f39c12';default:return'#2a2a4a';}
+}
+
+function draw(){
+  ctx.clearRect(0,0,cW,cH);
+  ctx.fillStyle='#1a1a2e';ctx.fillRect(0,0,cW,cH);
+
+  // Room outline
+  ctx.strokeStyle='#2a2a4a';ctx.lineWidth=1.5;
+  ctx.strokeRect(tx(15),ty(5),ts(930),ts(470));
+  // Oven room walls (upper left enclosure)
+  ctx.strokeStyle='#3a3a5a';ctx.lineWidth=1;
+  ctx.strokeRect(tx(18),ty(50),ts(145),ts(205));
+
+  // Flow arrows with arrowheads
+  FLOW.forEach(([f,t])=>{
+    const a=EQ[f],b=EQ[t];if(!a||!b)return;
+    const x1=tx(a.x+a.w/2),y1=ty(a.y+a.h/2);
+    const x2=tx(b.x+b.w/2),y2=ty(b.y+b.h/2);
+    const ang=Math.atan2(y2-y1,x2-x1);
+    const len=Math.sqrt((x2-x1)**2+(y2-y1)**2);
+    // Shorten line to not overlap equipment
+    const margin=ts(16);
+    const sx=x1+Math.cos(ang)*margin, sy=y1+Math.sin(ang)*margin;
+    const ex=x2-Math.cos(ang)*margin, ey=y2-Math.sin(ang)*margin;
+    // Line
+    ctx.strokeStyle='#1a3a5a';ctx.lineWidth=1;ctx.setLineDash([3,3]);
+    ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(ex,ey);ctx.stroke();
+    ctx.setLineDash([]);
+    // Arrowhead
+    const asz=ts(5);
+    ctx.fillStyle='#1a3a5a';
+    ctx.beginPath();
+    ctx.moveTo(ex,ey);
+    ctx.lineTo(ex-Math.cos(ang-0.4)*asz,ey-Math.sin(ang-0.4)*asz);
+    ctx.lineTo(ex-Math.cos(ang+0.4)*asz,ey-Math.sin(ang+0.4)*asz);
+    ctx.closePath();ctx.fill();
+  });
+
+  // Equipment
+  for(const[id,eq] of Object.entries(EQ)) drawEq(id,eq);
+  drawStrengtheners();
+  drawOvenRods();
+  drawSlots();
+  drawBufferIndicators();
+  drawArmTransport();
+
+  // Output-only overlay
+  if(S.ooMode){
+    ctx.fillStyle='rgba(233,69,96,0.06)';ctx.fillRect(0,0,cW,cH);
+    ctx.fillStyle='#e94560';ctx.font=`bold ${ts(16)}px sans-serif`;ctx.textAlign='center';
+    ctx.fillText('!! 只出不進模式 !!',cW/2,ty(8));ctx.textAlign='left';
+  }
+}
+
+function drawEq(id,eq){
+  const x=tx(eq.x),y=ty(eq.y),w=ts(eq.w),h=ts(eq.h);
+  const col=stCol(id);
+  // 瓶頸高亮 (閃爍紅框)
+  if(S.bottleneckId && id===S.bottleneckId && S.time>120){
+    ctx.save();ctx.strokeStyle='#e94560';ctx.lineWidth=3;
+    ctx.globalAlpha=0.4+0.6*Math.abs(Math.sin(S.time*3));
+    ctx.strokeRect(x-3,y-3,w+6,h+6);
+    ctx.restore();
+  }
+  const st=S.stations[id];
+  const action=st?st.action:'';
+
+  if(eq.isOven){
+    ctx.fillStyle=col+'15';ctx.fillRect(x,y,w,h);
+    ctx.strokeStyle=col;ctx.lineWidth=2;ctx.strokeRect(x,y,w,h);
+    // Shelf lines
+    ctx.strokeStyle=col+'33';ctx.lineWidth=.5;
+    for(let i=1;i<6;i++){const ry=y+(h/6)*i;ctx.beginPath();ctx.moveTo(x+3,ry);ctx.lineTo(x+w-3,ry);ctx.stroke();}
+    if(S.ooMode){ctx.fillStyle='rgba(233,69,96,0.12)';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#e94560';ctx.lineWidth=2.5;ctx.strokeRect(x,y,w,h);}
+  } else if(eq.isRack){
+    ctx.fillStyle='#080818';ctx.fillRect(x,y,w,h);
+    ctx.strokeStyle='#444';ctx.lineWidth=1;ctx.strokeRect(x,y,w,h);
+    for(let i=1;i<4;i++){const ry=y+(h/4)*i;ctx.beginPath();ctx.moveTo(x,ry);ctx.lineTo(x+w,ry);ctx.stroke();}
+    for(let i=0;i<4;i++){const ry=y+(h/4)*i+2,rh=h/4-4;for(let j=0;j<2;j++){ctx.strokeStyle='#444';ctx.strokeRect(x+4+j*32,ry+2,28,rh-4);}}
+    if(st&&st.state==='cart_change'){ctx.fillStyle='rgba(249,156,18,0.2)';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#f39c12';ctx.lineWidth=2;ctx.strokeRect(x,y,w,h);}
+  } else if(eq.isArm){
+    const cx=x+w/2,cy=y+h/2,r=Math.min(w,h)/2;
+    ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fillStyle=col+'30';ctx.fill();ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.stroke();
+    if(st&&st.state==='working'){
+      const a=(S.time*2.5)%(Math.PI*2);
+      ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(a)*r*.85,cy+Math.sin(a)*r*.85);ctx.strokeStyle=col;ctx.lineWidth=2;ctx.stroke();
+      const mx=cx+Math.cos(a)*r*.5,my=cy+Math.sin(a)*r*.5;
+      ctx.beginPath();ctx.arc(mx,my,1.5,0,Math.PI*2);ctx.fillStyle=col;ctx.fill();
+    }
+  } else if(eq.isGroup){
+    ctx.strokeStyle='#282848';ctx.lineWidth=1;ctx.setLineDash([4,4]);ctx.strokeRect(x,y,w,h);ctx.setLineDash([]);
+  } else {
+    ctx.fillStyle=col+'20';ctx.fillRect(x,y,w,h);ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.strokeRect(x,y,w,h);
+  }
+
+  // Label
+  if(eq.label){
+    ctx.fillStyle='#bbb';ctx.font=`${Math.max(7,ts(9))}px Microsoft JhengHei,sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';
+    eq.label.split('\n').forEach((ln,i,arr)=>{ctx.fillText(ln,x+w/2,y+h/2+(i-(arr.length-1)/2)*ts(12));});
+  }
+  // Action label (small, below)
+  if(action && !eq.isOven && !eq.isRack && !eq.isGroup){
+    ctx.fillStyle=col+'aa';ctx.font=`${Math.max(6,ts(7))}px sans-serif`;ctx.textAlign='center';
+    ctx.fillText(action,x+w/2,y+h+ts(9));
+  }
+}
+
+function drawStrengtheners(){
+  const g=EQ.strengthen,col=stCol('strengthen');
+  const cx=tx(g.x+g.w/2),cy=ty(g.y+g.h/2),rad=ts(Math.min(g.w,g.h)*.32),sz=ts(48);
+  for(let i=0;i<P.strN;i++){
+    const a=-Math.PI/2+(i/P.strN)*Math.PI*2;
+    const sx=cx+Math.cos(a)*rad,sy=cy+Math.sin(a)*rad;
+    ctx.save();ctx.translate(sx,sy);ctx.rotate(a+Math.PI/4);
+    ctx.fillStyle=col+'20';ctx.fillRect(-sz/2,-sz/2,sz,sz);
+    ctx.strokeStyle=col;ctx.lineWidth=1;ctx.strokeRect(-sz/2,-sz/2,sz,sz);
+    ctx.restore();
+    ctx.fillStyle='#666';ctx.font=`${ts(8)}px sans-serif`;ctx.textAlign='center';ctx.fillText(`#${i+1}`,sx,sy+3);
+  }
+}
+
+function drawOvenRods(){
+  const eq=EQ.oven;
+  const x=tx(eq.x),y=ty(eq.y),w=ts(eq.w),h=ts(eq.h);
+  if(!S.ovenQ.length)return;
+  const maxR=P.ovenRods; // 烤箱總桿數 (37)
+  const rh=Math.min((h-28)/maxR,ts(6));
+  const mg=5;
+  S.ovenQ.forEach((rod,i)=>{
+    const bt=S.time-rod.enterTime;
+    const ratio=Math.min(bt/P.bakeOver,1);
+    const rx=x+mg,ry=y+mg+i*(rh+1),rw=w-mg*2;
+    if(ry+rh>y+h-18)return;
+    const ok=P.bakeOk/P.bakeOver;
+    let c;
+    if(ratio<ok)c=lerp('#2ecc71','#f1c40f',ratio/ok);
+    else c=lerp('#f1c40f','#e74c3c',Math.min((ratio-ok)/(1-ok),1));
+    ctx.fillStyle=c;ctx.fillRect(rx,ry,rw,rh);
+    if(ratio>.92&&Math.floor(S.time*2)%2===0){ctx.strokeStyle='#e74c3c';ctx.lineWidth=1.5;ctx.strokeRect(rx,ry,rw,rh);}
+  });
+  ctx.fillStyle='#fff';ctx.font=`bold ${Math.max(7,ts(8))}px sans-serif`;ctx.textAlign='center';
+  ctx.fillText(`${S.ovenQ.length}/${P.ovenRods}桿`,x+w/2,y+h-14);
+  if(S.ovenQ.length>0){
+    const old=(S.time-S.ovenQ[0].enterTime)/60;
+    ctx.fillStyle=old>P.bakeOver/60?'#e74c3c':old>P.bakeOk/60?'#f1c40f':'#4ecca3';
+    ctx.fillText(`最老:${old.toFixed(1)}m`,x+w/2,y+h-4);
+  }
+}
+
+// 繪製儲位指示圓點 (●=有料 ○=空)
+function drawSlots(){
+  const B=S.buf;
+  const r=ts(4); // 圓點半徑
+
+  // 暫存架 (4儲位, 水平排列在設備下方)
+  const rk=EQ.bufferRack;
+  if(rk){
+    const sx=tx(rk.x), sy=ty(rk.y)+ts(rk.h)+ts(4);
+    for(let i=0;i<4;i++){
+      const cx=sx+ts(rk.w)/(4+1)*(i+1);
+      ctx.beginPath();ctx.arc(cx,sy,r,0,Math.PI*2);
+      ctx.fillStyle=i<B.rack?'#4ecca3':'#1a2a3a';ctx.fill();
+      ctx.strokeStyle='#335';ctx.lineWidth=0.5;ctx.stroke();
+    }
+  }
+
+  // 轉接平台2 (上下層各4, 直立排列)
+  const p2=EQ.platform2;
+  if(p2){
+    const px=tx(p2.x), py=ty(p2.y);
+    const w=ts(p2.w), h=ts(p2.h);
+    // 上層 (上半部) - 出爐放入
+    for(let i=0;i<4;i++){
+      const cy=py+h*0.1+i*(h*0.2);
+      const cx=px+w*0.3;
+      ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);
+      ctx.fillStyle=i<B.plat2Upper?'#e94560':'#1a2a3a';ctx.fill();
+      ctx.strokeStyle='#335';ctx.lineWidth=0.5;ctx.stroke();
+    }
+    // 下層 (右列) - 待入爐
+    for(let i=0;i<4;i++){
+      const cy=py+h*0.1+i*(h*0.2);
+      const cx=px+w*0.7;
+      ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);
+      ctx.fillStyle=i<B.plat2Lower?'#3498db':'#1a2a3a';ctx.fill();
+      ctx.strokeStyle='#335';ctx.lineWidth=0.5;ctx.stroke();
+    }
+    // Labels
+    ctx.fillStyle='#666';ctx.font=`${Math.max(6,ts(6))}px sans-serif`;ctx.textAlign='center';
+    ctx.fillText('上',px+w*0.3,py-ts(3));
+    ctx.fillText('下',px+w*0.7,py-ts(3));
+  }
+
+  // 高空滑台1 小車指示 (2台) — 顯示小車位置和狀態
+  const cv1=EQ.conv1;
+  if(cv1 && S.mach.conv1){
+    const cw=ts(cv1.w), cx0=tx(cv1.x), cy0=ty(cv1.y)+ts(cv1.h)/2;
+    S.mach.conv1.forEach((car,i)=>{
+      // 小車位置: ready=左端(armA側), going=依進度移動, arrived=右端(armO側), returning=依進度移回
+      let ratio=0; // 0=armA側, 1=armO側
+      if(car.state==='ready') ratio=1;       // 在 armA 側 (conv1 右端)
+      else if(car.state==='going') ratio=1-(P.conv1Go>0?car.timer/P.conv1Go:0); // 右→左
+      else if(car.state==='arrived') ratio=0; // 在 armO 側 (conv1 左端)
+      else if(car.state==='returning') ratio=P.conv1Back>0?car.timer/P.conv1Back:0; // 左→右
+      const cx=cx0+cw*(1-ratio*0.85)-ts(10)+i*ts(14);
+      const col=car.state==='going'?'#4ecca3':car.state==='arrived'?'#f1c40f':car.state==='returning'?'#3498db':'#1a2a3a';
+      ctx.beginPath();ctx.arc(cx,cy0,r+1,0,Math.PI*2);
+      ctx.fillStyle=col;ctx.fill();ctx.strokeStyle='#335';ctx.lineWidth=0.5;ctx.stroke();
+    });
+  }
+  // 高空滑台2 小車指示 (2台)
+  const cv2=EQ.conv2;
+  if(cv2 && S.mach.conv2){
+    const cw=ts(cv2.w), cx0=tx(cv2.x), cy0=ty(cv2.y)+ts(cv2.h)/2;
+    S.mach.conv2.forEach((car,i)=>{
+      let ratio=0;
+      if(car.state==='ready') ratio=0;       // 在 arm3 側 (conv2 左端)
+      else if(car.state==='going') ratio=P.conv2Go>0?1-car.timer/P.conv2Go:1; // 左→右
+      else if(car.state==='arrived') ratio=1; // 在 armB 側 (conv2 右端)
+      else if(car.state==='returning') ratio=P.conv2Back>0?car.timer/P.conv2Back:0; // 右→左
+      const cx=cx0+cw*(0.1+ratio*0.85)+i*ts(14);
+      const col=car.state==='going'?'#4ecca3':car.state==='arrived'?'#f1c40f':car.state==='returning'?'#3498db':'#1a2a3a';
+      ctx.beginPath();ctx.arc(cx,cy0,r+1,0,Math.PI*2);
+      ctx.fillStyle=col;ctx.fill();ctx.strokeStyle='#335';ctx.lineWidth=0.5;ctx.stroke();
+    });
+  }
+}
+
+function drawProds(){
+  // 不再畫假的流動圓點，改由 drawBufferIndicators() 和 drawArmTransport() 負責
+}
+
+// ================================================================
+//  真實 Buffer 指示器：每個站點旁顯示實際片數
+// ================================================================
+function drawBufferIndicators(){
+  if(!S.running&&S.time===0)return;
+  const B=S.buf, M=S.mach;
+  const dotR=ts(3.5);
+  const lblFont=`bold ${Math.max(7,ts(8))}px sans-serif`;
+
+  // 輔助：畫 N 個圓點（filled=有料, empty=空）水平排列
+  function drawDots(cx,cy,total,filled,color,direction){
+    direction=direction||'h';
+    const gap=dotR*2.6;
+    for(let i=0;i<total;i++){
+      const dx=direction==='h'?cx+i*gap:cx;
+      const dy=direction==='h'?cy:cy+i*gap;
+      ctx.beginPath();ctx.arc(dx,dy,dotR,0,Math.PI*2);
+      ctx.fillStyle=i<filled?color:'#1a2a3a';ctx.fill();
+      ctx.strokeStyle='#335';ctx.lineWidth=0.5;ctx.stroke();
+    }
+  }
+
+  // 輔助：在設備旁顯示數量標籤
+  function drawCount(x,y,count,max,color){
+    if(max===undefined){
+      ctx.fillStyle=count>0?color:'#444';ctx.font=lblFont;ctx.textAlign='center';
+      ctx.fillText(count>0?`${count}`:'',x,y);
+    } else {
+      ctx.fillStyle=count>0?color:'#444';ctx.font=lblFont;ctx.textAlign='center';
+      ctx.fillText(`${count}/${max}`,x,y);
+    }
+  }
+
+  // --- 滑台1 到達等待 ---
+  const cv1=EQ.conv1;
+  if(cv1 && B.conv1>0){
+    const x=tx(cv1.x)+ts(10), y=ty(cv1.y)-ts(6);
+    drawCount(x,y,B.conv1,undefined,'#f1c40f');
+    ctx.fillStyle='#666';ctx.font=`${Math.max(6,ts(7))}px sans-serif`;ctx.textAlign='left';
+    ctx.fillText('待取',x+ts(8),y);
+  }
+
+  // --- 清洗機 (迴轉步進式: 13格圓形排列) ---
+  const ws=EQ.washer;
+  if(ws){
+    const wcx=tx(ws.x)+ts(ws.w/2), wcy=ty(ws.y)+ts(ws.h/2);
+    const wrad=ts(Math.min(ws.w,ws.h)*0.38);
+    const totalSlots=P.washSlots||13;
+    const w=M.washer;
+    // 畫各格 (圓形排列)
+    for(let i=0;i<totalSlots;i++){
+      const a=-Math.PI/2+(i/totalSlots)*Math.PI*2;
+      const sx=wcx+Math.cos(a)*wrad, sy=wcy+Math.sin(a)*wrad;
+      // 判斷這格有沒有片
+      const filled=i<w.queue.length;
+      const isExit=i===0 && w.exitReady>0;
+      ctx.beginPath();ctx.arc(sx,sy,dotR,0,Math.PI*2);
+      ctx.fillStyle=isExit?'#f1c40f':filled?'#4ecca3':'#1a2a3a';
+      ctx.fill();ctx.strokeStyle='#335';ctx.lineWidth=0.5;ctx.stroke();
+    }
+    // 入口/出口標記
+    {
+      const a0=-Math.PI/2;
+      const ex=wcx+Math.cos(a0)*(wrad+ts(8)), ey=wcy+Math.sin(a0)*(wrad+ts(8));
+      ctx.fillStyle=w.exitReady>0?'#f1c40f':'#666';ctx.font=`${Math.max(6,ts(7))}px sans-serif`;ctx.textAlign='center';
+      ctx.fillText(w.exitReady>0?'待取':'入口',ex,ey-ts(2));
+    }
+    // 數量標籤
+    ctx.fillStyle='#888';ctx.font=`${Math.max(6,ts(7))}px sans-serif`;ctx.textAlign='center';
+    ctx.fillText(`${w.queue.length+w.exitReady}/${totalSlots}`,wcx,wcy+ts(3));
+  }
+
+  // --- 轉接平台1 ---
+  const p1=EQ.platform1;
+  if(p1){
+    const x=tx(p1.x), y=ty(p1.y)+ts(p1.h)+ts(5);
+    drawDots(x,y,P.plat1Cap,B.plat1,'#3498db');
+  }
+
+  // --- 強化機 各台狀態 (在 drawStrengtheners 已畫位置，這裡加進度) ---
+  const g=EQ.strengthen;
+  if(g){
+    const cx=tx(g.x+g.w/2),cy=ty(g.y+g.h/2),rad=ts(Math.min(g.w,g.h)*.32);
+    for(let i=0;i<P.strN;i++){
+      const a=-Math.PI/2+(i/P.strN)*Math.PI*2;
+      const sx=cx+Math.cos(a)*rad, sy=cy+Math.sin(a)*rad;
+      const m=M.str[i];
+      if(m.has&&!m.done){
+        // 強化中：進度圓弧 (綠)
+        const pct=1-m.timer/P.strCT;
+        ctx.beginPath();ctx.arc(sx,sy,ts(28),-Math.PI/2,-Math.PI/2+pct*Math.PI*2);
+        ctx.strokeStyle='#4ecca3';ctx.lineWidth=2.5;ctx.stroke();
+        ctx.beginPath();ctx.arc(sx,sy,dotR+1,0,Math.PI*2);
+        ctx.fillStyle='#4ecca3';ctx.fill();
+      } else if(m.has&&m.done){
+        // 完成待取：黃色實心 (片仍佔機台)
+        ctx.beginPath();ctx.arc(sx,sy,ts(28),-Math.PI/2,-Math.PI/2+Math.PI*2);
+        ctx.strokeStyle='#f1c40f';ctx.lineWidth=2.5;ctx.stroke();
+        ctx.beginPath();ctx.arc(sx,sy,dotR+1,0,Math.PI*2);
+        ctx.fillStyle='#f1c40f';ctx.fill();
+      }
+    }
+  }
+
+  // --- 預烘機 (步進式, 水平 4 格: 入口=左, 出口=右) ---
+  const pb=EQ.prebake;
+  if(pb){
+    const pre=M.prebake;
+    const last=pre.slots.length-1;
+    const moving=pre.phase==='moving';
+    const cellW=ts(pb.w)/(pre.slots.length+0.5);
+    const cy=ty(pb.y)+ts(pb.h)+ts(6);
+    // 視覺翻轉: 入口 slots[0] 畫在右邊 (靠近手臂2), 出口 slots[last] 畫在左邊
+    for(let i=0;i<pre.slots.length;i++){
+      const visualIdx=last-i; // 0→最右, last→最左
+      const cx=tx(pb.x)+cellW*(visualIdx+0.75);
+      ctx.beginPath();ctx.arc(cx,cy,dotR+1,0,Math.PI*2);
+      const has=pre.slots[i]!==null;
+      // 出口有料用黃色, 其他有料用綠色, 空用深色
+      ctx.fillStyle=has?(i===last?'#f1c40f':'#4ecca3'):'#1a2a3a';
+      ctx.fill();
+      ctx.strokeStyle=moving?'#e94560':'#335';
+      ctx.lineWidth=moving?1.2:0.5;
+      ctx.stroke();
+    }
+    // 入口/出口標記 (入在右, 出在左)
+    ctx.fillStyle='#666';ctx.font=`${Math.max(7,ts(7))}px sans-serif`;ctx.textAlign='center';
+    ctx.fillText('出',tx(pb.x)+cellW*0.75,cy+ts(10));
+    ctx.fillText('入',tx(pb.x)+cellW*(last+0.75),cy+ts(10));
+  }
+
+  // --- 滑台2 到達等待 ---
+  const cv2=EQ.conv2;
+  if(cv2 && B.conv2>0){
+    const x=tx(cv2.x)+ts(cv2.w)-ts(30), y=ty(cv2.y)+ts(cv2.h)+ts(8);
+    drawCount(x,y,B.conv2,undefined,'#f1c40f');
+    ctx.fillStyle='#666';ctx.font=`${Math.max(6,ts(7))}px sans-serif`;ctx.textAlign='left';
+    ctx.fillText('待取',x+ts(8),y);
+  }
+}
+
+// ================================================================
+//  手臂搬運動畫：根據手臂 timer 進度，畫片從 A 飛到 B
+// ================================================================
+function drawArmTransport(){
+  if(!S.running&&S.time===0)return;
+
+  // 手臂→搬運路徑對應 (action關鍵字 → [from設備, to設備])
+  const ARM_ROUTES={
+    armA:[
+      {match:'取推車→放滑台',from:'inputCart',to:'conv1'},
+    ],
+    armO:[
+      {match:'取滑台→清洗機',from:'conv1',to:'washer'},
+      {match:'取清洗機→暫存架',from:'washer',to:'bufferRack'},
+    ],
+    arm1:[
+      {match:'暫存架→平台1',from:'bufferRack',to:'platform1'},
+    ],
+    arm2:[
+      {match:'取平台1→強化',from:'platform1',to:'strengthen'},
+      {match:'取強化→預烘',from:'strengthen',to:'prebake'},
+    ],
+    arm3:[
+      {match:'取預烘→平台2下',from:'prebake',to:'platform2'},
+      {match:'取平台2上→出料位',from:'platform2',to:'conv2'},
+    ],
+    armL:[
+      {match:'入料(下層→桿)',from:'platform2',to:'oven'},
+      {match:'出料(桿→上層)',from:'oven',to:'platform2'},
+    ],
+    armB:[
+      {match:'取滑台→放推車',from:'conv2',to:'outputCart'},
+    ],
+  };
+
+  for(const[armId,routes] of Object.entries(ARM_ROUTES)){
+    const arm=S.arms[armId];
+    if(!arm||arm.state!=='busy')continue;
+    const action=arm.action||'';
+    for(const route of routes){
+      if(!action.includes(route.match))continue;
+      const fromEq=EQ[route.from], toEq=EQ[route.to];
+      if(!fromEq||!toEq)continue;
+      const armEq=EQ[armId];
+      if(!armEq)continue;
+
+      // 計算進度 (0→1)
+      // 找到這個動作的原始 duration
+      let totalDur=arm.timer; // 剩餘時間
+      // 動作 duration 需要從初始值推算; 用已知參數
+      let origDur=0;
+      if(armId==='armA') origDur=P.armAPick;
+      else if(armId==='armO') origDur=action.includes('清洗機→暫存架')?P.armOToRack:P.armOToWash;
+      else if(armId==='arm1') origDur=P.arm1Move;
+      else if(armId==='arm2') origDur=action.includes('強化→預烘')?P.arm2ToPre:P.arm2ToStr;
+      else if(armId==='arm3') origDur=action.includes('出料位')?P.arm3ToOut:P.arm3ToP2;
+      else if(armId==='armL') origDur=action.includes('入料')?P.armLIn:P.armLOut;
+      else if(armId==='armB') origDur=P.armBPick;
+      if(origDur<=0) origDur=30;
+
+      const progress=Math.max(0,Math.min(1,1-arm.timer/origDur));
+
+      // 路徑: from → armCenter → to, 用進度插值
+      const fx=tx(fromEq.x+fromEq.w/2), fy=ty(fromEq.y+fromEq.h/2);
+      const ax=tx(armEq.x+armEq.w/2), ay=ty(armEq.y+armEq.h/2);
+      const ex=tx(toEq.x+toEq.w/2), ey=ty(toEq.y+toEq.h/2);
+
+      let px,py;
+      if(progress<0.5){
+        // from → arm
+        const p2=progress*2;
+        px=fx+(ax-fx)*p2; py=fy+(ay-fy)*p2;
+      } else {
+        // arm → to
+        const p2=(progress-0.5)*2;
+        px=ax+(ex-ax)*p2; py=ay+(ey-ay)*p2;
+      }
+
+      // 畫搬運中的片 (較大、帶尾跡)
+      const r=ts(4);
+      // 尾跡
+      for(let t=1;t<=3;t++){
+        const tp=Math.max(0,progress-t*0.04);
+        let tpx,tpy;
+        if(tp<0.5){const p2=tp*2;tpx=fx+(ax-fx)*p2;tpy=fy+(ay-fy)*p2;}
+        else{const p2=(tp-0.5)*2;tpx=ax+(ex-ax)*p2;tpy=ay+(ey-ay)*p2;}
+        ctx.beginPath();ctx.arc(tpx,tpy,r*(1-t*0.2),0,Math.PI*2);
+        ctx.fillStyle=`rgba(78,204,163,${0.15-t*0.04})`;ctx.fill();
+      }
+      // 主體
+      ctx.beginPath();ctx.arc(px,py,r,0,Math.PI*2);
+      ctx.fillStyle='#4ecca3';ctx.fill();
+      ctx.strokeStyle='#fff';ctx.lineWidth=1;ctx.stroke();
+      break;
+    }
+  }
+}
+
+function lerp(a,b,t){
+  const p=s=>parseInt(s,16);
+  const ar=p(a.slice(1,3)),ag=p(a.slice(3,5)),ab=p(a.slice(5,7));
+  const br=p(b.slice(1,3)),bg=p(b.slice(3,5)),bb=p(b.slice(5,7));
+  return`rgb(${Math.round(ar+(br-ar)*t)},${Math.round(ag+(bg-ag)*t)},${Math.round(ab+(bb-ab)*t)})`;
+}
+
+// ================================================================
+//  CHARTS & STATS
+// ================================================================
+function drawUphChart(){
+  const c=document.getElementById('uc'),x2=c.getContext('2d');
+  const r=c.parentElement.getBoundingClientRect(),d=window.devicePixelRatio||1;
+  c.width=r.width*d;c.height=r.height*d;c.style.width=r.width+'px';c.style.height=r.height+'px';
+  x2.setTransform(d,0,0,d,0,0);
+  const w=r.width,h=r.height;x2.clearRect(0,0,w,h);x2.fillStyle='#0a0a23';x2.fillRect(0,0,w,h);
+  if(S.uphLog.length<2)return;
+  const mT=P.simH*3600,mU=65;
+  // Theory line
+  const tY=h-(P.theoryUPH/mU)*h;
+  x2.strokeStyle='#333';x2.lineWidth=1;x2.setLineDash([3,3]);
+  x2.beginPath();x2.moveTo(0,tY);x2.lineTo(w,tY);x2.stroke();x2.setLineDash([]);
+  x2.fillStyle='#555';x2.font='7px sans-serif';x2.fillText(`理論${P.theoryUPH.toFixed(0)}`,2,tY-2);
+  // UPH line
+  x2.beginPath();x2.strokeStyle='#4ecca3';x2.lineWidth=1.5;
+  S.uphLog.forEach((p,i)=>{const px=(p.t/mT)*w,py=h-(Math.min(p.uph,mU)/mU)*h;if(i===0)x2.moveTo(px,py);else x2.lineTo(px,py);});
+  x2.stroke();
+}
+
+function drawTimeline(){
+  const c=document.getElementById('tc'),x3=c.getContext('2d');
+  const r=c.parentElement.getBoundingClientRect(),d=window.devicePixelRatio||1;
+  c.width=r.width*d;c.height=165*d;c.style.width=r.width+'px';c.style.height='165px';
+  x3.setTransform(d,0,0,d,0,0);
+  const w=r.width,h=165;x3.clearRect(0,0,w,h);
+  const ids=STATION_DEFS.map(d=>d.id);
+  const names=STATION_DEFS.map(d=>d.name);
+  const rH=h/ids.length,lW=56;
+  x3.fillStyle='#777';x3.font='8px Microsoft JhengHei,sans-serif';x3.textAlign='right';
+  names.forEach((n,i)=>x3.fillText(n,lW-3,i*rH+rH*.72));
+  const bW=w-lW;
+  ids.forEach((id,i)=>{
+    const s=S.stations[id];if(!s)return;
+    const yy=i*rH+.5,bh=rH-1;
+    const c2=stCol(id);
+    x3.fillStyle=c2+'28';x3.fillRect(lW,yy,bW,bh);
+    // Action text
+    const lb=s.action||({idle:'待機',working:'運作',blocked:'阻塞',cart_change:'換車'}[s.state]||'');
+    x3.fillStyle=c2;x3.font='8px sans-serif';x3.textAlign='left';
+    x3.fillText(lb,lW+3,yy+bh*.72);
+  });
+  if(S.ooMode){
+    x3.fillStyle='rgba(233,69,96,0.1)';x3.fillRect(lW,0,bW,h);
+    x3.fillStyle='#e94560';x3.font='bold 12px sans-serif';x3.textAlign='center';
+    x3.fillText('只出不進模式',lW+bW/2,h/2);
+  }
+}
+
+function updateStats(){
+  const t=S.time;
+  const h=Math.floor(t/3600),m=Math.floor((t%3600)/60),s=Math.floor(t%60);
+  document.getElementById('s_time').textContent=`${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  document.getElementById('s_pct').textContent=`${(t/(P.simH*3600)*100).toFixed(1)}%`;
+  // 穩態UPH (從手臂B首動後起算)
+  if(S.armBStarted){
+    const ssElapsed=t-S.armBFirstTime;
+    const ssOut=S.totalOut-S.armBFirstOut;
+    const ssUph=ssElapsed>0?(ssOut/ssElapsed*3600):0;
+    document.getElementById('s_uph_ss').textContent=ssUph.toFixed(1);
+    const bH=Math.floor(S.armBFirstTime/3600),bM=Math.floor((S.armBFirstTime%3600)/60),bS=Math.floor(S.armBFirstTime%60);
+    document.getElementById('s_uph_ss2').textContent=`首動:${bH}:${String(bM).padStart(2,'0')}:${String(bS).padStart(2,'0')} | 出${ssOut}片/${(ssElapsed/60).toFixed(1)}min`;
+  }
+  document.getElementById('s_out').textContent=S.totalOut;
+  document.getElementById('s_in').textContent=`入: ${S.totalIn}`;
+  document.getElementById('s_ob').textContent=`${S.obPieces} 片`;
+  document.getElementById('s_ob2').textContent=S.totalOut>0?`過烘率:${(S.obPieces/S.totalOut*100).toFixed(1)}%`:'0%';
+  document.getElementById('s_ob').parentElement.className=S.obPieces>0?'sc w':'sc';
+  document.getElementById('s_mb').textContent=S.maxBake>0?`${(S.maxBake/60).toFixed(1)}min`:'--';
+  document.getElementById('s_mb2').textContent=`門檻:${P.bakeOver/60}min`;
+  document.getElementById('s_mb').parentElement.className=S.maxBake>P.bakeOver?'sc w':'sc';
+  const oo=S.ooTotal+(S.ooMode?S.time-S.ooStart:0);
+  document.getElementById('s_oo').textContent=`${(oo/60).toFixed(1)} min`;
+  document.getElementById('s_oo2').textContent=`佔比:${t>0?(oo/t*100).toFixed(1):0}%`;
+  document.getElementById('s_cc').textContent=`入${S.ccIn}/出${S.ccOut}`;
+  document.getElementById('s_cc2').textContent=`耗時:${(S.ccTime/60).toFixed(1)}min`;
+  document.getElementById('s_ov').textContent=`${S.ovenQ.length}/${P.ovenRods}桿 (${S.ovenQ.length*P.batch}片)`;
+  if(S.ovenQ.length>0){const old=(S.time-S.ovenQ[0].enterTime)/60;document.getElementById('s_ov2').textContent=`最老:${old.toFixed(1)}min`;}
+
+  // Utilization
+  if(t>60){
+    let lines=[];
+    STATION_DEFS.forEach(d=>{
+      const al=S.actionLog[d.id];if(!al)return;
+      const total=al.busy+al.idle;
+      const pct=total>0?(al.busy/total*100):0;
+      const bar='\u2588'.repeat(Math.round(pct/5))+'\u2591'.repeat(20-Math.round(pct/5));
+      lines.push(`${d.name.padEnd(6,' ')} ${bar} ${pct.toFixed(0)}%`);
+    });
+    document.getElementById('s_util').textContent=lines.join('\n');
+  }
+
+  // 瓶頸分析
+  if(t>120){
+    let maxUtil=0, bnName='--', bnId='';
+    const armIds=['armA','armO','arm1','arm2','arm3','armL','armB'];
+    armIds.forEach(id=>{
+      const al=S.actionLog[id];if(!al)return;
+      const tot=al.busy+al.idle;
+      const pct=tot>0?(al.busy/tot*100):0;
+      const def=STATION_DEFS.find(d=>d.id===id);
+      if(pct>maxUtil){maxUtil=pct;bnName=def?def.name:id;bnId=id;}
+    });
+    S.bottleneckId=bnId;
+    document.getElementById('s_bn').textContent=bnName;
+    document.getElementById('s_bn').style.color='#e94560';
+    document.getElementById('s_bn2').textContent=`利用率: ${maxUtil.toFixed(1)}%`;
+  }
+
+  // WIP 堆積
+  const B=S.buf;
+  const wipMap=[['滑台1',B.conv1],['清洗中',S.mach.washer.queue.length],['洗完待取',S.mach.washer.exitReady],['暫存架',B.rack],['平台1',B.plat1],['強化完',B.strDone],['預烘機',S.mach.prebake.slots.filter(s=>s!==null).length],['平台2下',B.plat2Lower],['平台2上',B.plat2Upper],['滑台2',B.conv2]];
+  document.getElementById('s_wip').textContent=wipMap.map(([n,v])=>{
+    const bar=v>0?'\u2588'.repeat(Math.min(v,8)):'';
+    return `${n.padEnd(4,' ')} ${String(v).padStart(2,' ')} ${bar}`;
+  }).join('\n');
+
+  // 烤箱桿位明細
+  updateOvenDetail();
+  // Excel比較
+  updateExcelPanel();
+}
+
+// Excel 理論參考數據 (stId=利用率對應的設備ID)
+const EXCEL_REF=[
+  {name:'手臂A+滑台1',simId:'armA',stId:'armA',ct:120,batch:2,uph:60},
+  {name:'手臂O',simId:'armO',stId:'armO',ct:60,batch:1,uph:60},
+  {name:'清洗機',simId:'washer',stId:'washer',ct:60,batch:1,uph:60},
+  {name:'手臂1',simId:'arm1',stId:'arm1',ct:30,batch:1,uph:120},
+  {name:'手臂2',simId:'arm2_out',stId:'arm2',ct:65,batch:1,uph:55.38},
+  {name:'強化機(4台)',simId:'strengthen',stId:'strengthen',ct:120,batch:1,uph:120},
+  {name:'預烘機',simId:'prebake',stId:'prebake',ct:65,batch:1,uph:55.38},
+  {name:'手臂3',simId:'arm3_in',stId:'arm3',ct:70,batch:1,uph:51.43},
+  {name:'手臂L(Phase)',simId:'armL_out',stId:'armL',ct:280,batch:4,uph:51.43},
+  {name:'手臂B+滑台2',simId:'armB',stId:'armB',ct:90,batch:2,uph:80},
+];
+
+function updateExcelPanel(){
+  const el=document.getElementById('excelTable');if(!el)return;
+  const t=S.time;
+  if(t<120){el.innerHTML='<span style="color:#555">模擬 2 分鐘後顯示</span>';return;}
+  let html='<table style="width:100%;border-collapse:collapse;font-size:8px">';
+  html+='<tr style="color:#888;border-bottom:1px solid #222"><th style="text-align:left;padding:1px 2px">站點</th><th>Excel</th><th>模擬</th><th>差異</th><th>利用率</th></tr>';
+  let minSimUph=9999,sysBottleneck='';
+  EXCEL_REF.forEach(ref=>{
+    const cnt=S.pieceCnt[ref.simId]||0;
+    // 用該站首次動作後的時間算UPH
+    const al=S.actionLog[ref.stId];
+    const elapsed=al&&al.started?(al.busy+al.idle):0;
+    const simUph=elapsed>0?(cnt/elapsed*3600):0;
+    const utilPct=al&&al.started&&(al.busy+al.idle)>0?(al.busy/(al.busy+al.idle)*100):0;
+    const diff=ref.uph>0&&simUph>0?((simUph-ref.uph)/ref.uph*100):0;
+    const diffCol=Math.abs(diff)>10?(diff<0?'#e94560':'#4ecca3'):'#888';
+    if(simUph>0&&simUph<minSimUph){minSimUph=simUph;sysBottleneck=ref.name;}
+    const isBn=ref.simId===S.bottleneckId||ref.name===sysBottleneck;
+    html+=`<tr style="border-bottom:1px solid #111;${isBn?'background:#1a0a1a;':''}">`;
+    html+=`<td style="padding:1px 2px;${isBn?'color:#e94560;font-weight:bold;':''}">${ref.name}${isBn?' *':''}</td>`;
+    html+=`<td style="text-align:center;color:#f1c40f">${ref.uph.toFixed(1)}</td>`;
+    html+=`<td style="text-align:center;color:#4ecca3">${simUph>0?simUph.toFixed(1):'--'}</td>`;
+    html+=`<td style="text-align:center;color:${diffCol}">${simUph>0?(diff>=0?'+':'')+diff.toFixed(1)+'%':'--'}</td>`;
+    html+=`<td style="text-align:center;color:${utilPct>90?'#e94560':utilPct>70?'#f1c40f':'#4ecca3'}">${utilPct>0?utilPct.toFixed(1)+'%':'--'}</td>`;
+    html+='</tr>';
+  });
+  // 系統UPH用穩態算法
+  html+=`<tr style="border-top:2px solid #333;color:#fff"><td style="padding:2px;font-weight:bold" colspan="1">系統 UPH</td>`;
+  html+=`<td style="text-align:center;color:#f1c40f;font-weight:bold">51.43</td>`;
+  const ssElapsed=S.armBStarted?(t-S.armBFirstTime):0;
+  const ssOut=S.armBStarted?(S.totalOut-S.armBFirstOut):0;
+  const ssUph=ssElapsed>0?(ssOut/ssElapsed*3600):0;
+  html+=`<td style="text-align:center;color:#4ecca3;font-weight:bold">${ssUph>0?ssUph.toFixed(1):'--'}</td>`;
+  const sysDiff=ssUph>0?((ssUph-51.43)/51.43*100):0;
+  html+=`<td style="text-align:center;color:${Math.abs(sysDiff)>10?'#e94560':'#888'}">${ssUph>0?(sysDiff>=0?'+':'')+sysDiff.toFixed(1)+'%':'--'}</td>`;
+  html+=`<td></td></tr>`;
+  html+='</table>';
+  el.innerHTML=html;
+}
+
+function updateOvenDetail(){
+  const el=document.getElementById('ovenRodList');
+  if(!el)return;
+  if(S.ovenQ.length===0){el.innerHTML='<span style="color:#555">烤箱空</span>';return;}
+  const bakeOkMin=P.bakeOk/60, bakeOverMin=P.bakeOver/60;
+  let html='<table style="width:100%;border-collapse:collapse;font-size:9px">';
+  html+='<tr style="color:#888;border-bottom:1px solid #222"><th style="text-align:left;padding:1px 3px">桿#</th><th>進入</th><th>間隔</th><th>已烘</th><th>狀態</th><th>條</th></tr>';
+  S.ovenQ.forEach((rod,i)=>{
+    const bakeS=S.time-rod.enterTime;
+    const bakeMin=bakeS/60;
+    const eH=Math.floor(rod.enterTime/3600);
+    const eM=Math.floor((rod.enterTime%3600)/60);
+    const eS=Math.floor(rod.enterTime%60);
+    const enterStr=`${eH}:${String(eM).padStart(2,'0')}:${String(eS).padStart(2,'0')}`;
+    // 與前一桿的間隔
+    let gapStr='--';
+    if(i>0){
+      const gap=rod.enterTime-S.ovenQ[i-1].enterTime;
+      gapStr=gap>=60?`${(gap/60).toFixed(1)}m`:`${gap.toFixed(0)}s`;
+    }
+    let status,color;
+    if(bakeMin>=bakeOverMin){status='過烘!';color='#e94560';}
+    else if(bakeMin>=bakeOkMin){status='可出料';color='#f1c40f';}
+    else {status='烘烤中';color='#4ecca3';}
+    const pct=Math.min(bakeS/P.bakeOver*100,100);
+    const barW=40;
+    const barCol=pct>=100?'#e94560':pct>=(bakeOkMin/bakeOverMin*100)?'#f1c40f':'#2ecc71';
+    html+=`<tr style="border-bottom:1px solid #111;color:${color}">`;
+    html+=`<td style="padding:1px 3px">${rod.id}</td>`;
+    html+=`<td style="text-align:center">${enterStr}</td>`;
+    html+=`<td style="text-align:center;color:#3498db">${gapStr}</td>`;
+    html+=`<td style="text-align:center">${bakeMin.toFixed(1)}m</td>`;
+    html+=`<td style="text-align:center">${status}</td>`;
+    html+=`<td><div style="background:#111;width:${barW}px;height:6px;border-radius:2px;overflow:hidden"><div style="background:${barCol};width:${pct}%;height:100%"></div></div></td>`;
+    html+='</tr>';
+  });
+  html+='</table>';
+  el.innerHTML=html;
+}
+
+// ================================================================
+//  MAIN LOOP
+// ================================================================
+function toggle(){
+  if(S.running){S.running=false;document.getElementById('btnR').textContent='\u25B6 繼續';document.getElementById('btnR').classList.remove('on');document.getElementById('stTxt').textContent='暫停';return;}
+  if(S.time===0){readP();initSim();document.getElementById('eLog').innerHTML='<h3>事件記錄</h3>';S.events=[];S.uphLog=[];S._uphT=0;}
+  else{readP();} // 暫停後繼續時重新讀參數,讓使用者調整可立即生效
+  S.running=true;S.lastTS=performance.now();
+  document.getElementById('btnR').textContent='\u23F8 暫停';document.getElementById('btnR').classList.add('on');document.getElementById('stTxt').textContent='模擬中...';
+  requestAnimationFrame(mainLoop);
+}
+
+function reset(){
+  S.running=false;S.time=0;
+  document.getElementById('btnR').textContent='\u25B6 開始';document.getElementById('btnR').classList.remove('on');
+  document.getElementById('stTxt').textContent='已重置';
+  document.getElementById('eLog').innerHTML='<h3>事件記錄</h3>';
+  readP();initSim();draw();updateStats();drawTimeline();drawUphChart();
+}
+
+function mainLoop(ts){
+  if(!S.running)return;
+  S.speed=parseInt(document.getElementById('spdS').value);
+  document.getElementById('spdL').textContent=S.speed+'x';
+  const realDt=(ts-S.lastTS)/1000;S.lastTS=ts;
+  let simDt=Math.min(realDt*S.speed,20);
+  const step=.5;
+  const maxT=P.simH*3600;
+  while(simDt>0&&S.time<maxT){const d=Math.min(simDt,step);S.time+=d;simStep(d);simDt-=d;}
+  if(S.time>=maxT){
+    S.running=false;document.getElementById('btnR').textContent='\u25B6 完成';document.getElementById('btnR').classList.remove('on');
+    {const ssE=S.armBStarted?(S.time-S.armBFirstTime):0;const ssO=S.armBStarted?(S.totalOut-S.armBFirstOut):0;const ssU=ssE>0?(ssO/ssE*3600):0;
+    document.getElementById('stTxt').textContent=`完成 穩態UPH:${ssU.toFixed(1)} | 出料:${S.totalOut}片 | 過烘:${S.obPieces}片`;}
+  }
+  draw();updateStats();updateTip();
+  if(Math.floor(S.time)%15===0){drawTimeline();drawUphChart();}
+  if(S.running)requestAnimationFrame(mainLoop);
+  else{drawTimeline();drawUphChart();}
+}
+
+// ================================================================
+//  TOOLTIP (持續更新)
+// ================================================================
+let _tipHoverId=null; // 目前 hover 的設備 ID
+
+function buildTipHtml(fid){
+  const st=S.stations[fid];
+  const def=STATION_DEFS.find(d=>d.id===fid);
+  const B=S.buf;
+  let html=`<b>${def?def.name:fid}</b>\n`;
+  if(st){
+    const lb={idle:'待機',working:'運作中',blocked:'阻塞',cart_change:'換車中'};
+    html+=`<span>狀態: ${lb[st.state]||st.state}</span>`;
+    if(st.action) html+=`\n動作: ${st.action}`;
+    if(st.timer>0) html+=`\n剩餘: ${st.timer.toFixed(1)}s`;
+  }
+  if(def){
+    const al=S.actionLog[fid];
+    if(al){const tot=al.busy+al.idle;if(tot>0) html+=`\n利用率: ${(al.busy/tot*100).toFixed(1)}%`;}
+  }
+  if(fid==='bufferRack') html+=`\n儲位: ${B.rack}/4 [${'●'.repeat(B.rack)}${'○'.repeat(4-B.rack)}]`;
+  if(fid==='platform1') html+=`\n儲位: ${B.plat1} 片`;
+  if(fid==='platform2') html+=`\n下層(待入爐): ${B.plat2Lower}/4 [${'●'.repeat(B.plat2Lower)}${'○'.repeat(4-B.plat2Lower)}]\n上層(已出爐): ${B.plat2Upper}/4 [${'●'.repeat(B.plat2Upper)}${'○'.repeat(4-B.plat2Upper)}]`;
+  if(fid==='conv1'){
+    const stLabel={ready:'待命(A側)',going:'去程→O側',arrived:'到達(O側)',returning:'回程→A側'};
+    S.mach.conv1.forEach((car,i)=>{
+      html+=`\n小車${i+1}: ${stLabel[car.state]||car.state}`;
+      if(car.state==='going'||car.state==='returning') html+=` ${Math.max(0,car.timer).toFixed(1)}s`;
+    });
+    html+=`\n到達等待: ${B.conv1} 片`;
+  }
+  if(fid==='conv2'){
+    const stLabel={ready:'待命(3側)',going:'去程→B側',arrived:'到達(B側)',returning:'回程→3側'};
+    S.mach.conv2.forEach((car,i)=>{
+      html+=`\n小車${i+1}: ${stLabel[car.state]||car.state}`;
+      if(car.state==='going'||car.state==='returning') html+=` ${Math.max(0,car.timer).toFixed(1)}s`;
+    });
+    html+=`\n到達等待: ${B.conv2} 片`;
+  }
+  if(fid==='washer'){
+    const w=S.mach.washer;
+    html+=`\n模式: 迴轉步進 ${P.washSlots}格`;
+    html+=`\n階段: ${w.phase==='cleaning'?'清洗中 (可取放)':'移動中 (不可取放)'}`;
+    html+=`\n在洗: ${w.queue.length}/${P.washSlots} 格`;
+    if(w.queue.length>0||w.exitReady>0) html+=`\n計時: ${Math.max(0,w.stepTimer).toFixed(1)}s`;
+    html+=`\n出口待取: ${w.exitReady} 片`;
+    if(w.exitReady>0) html+=`\n⚠ 阻塞 (等手臂O取料才能移動)`;
+  }
+  if(fid==='strengthen'){
+    const baking=S.mach.str.filter(s=>s.has&&!s.done).length;
+    const done=S.mach.str.filter(s=>s.has&&s.done).length;
+    const empty=P.strN-baking-done;
+    html+=`\n強化${baking} 待取${done} 空${empty} / ${P.strN}台`;
+    S.mach.str.forEach((s,i)=>{
+      if(s.has&&!s.done) html+=`\n  #${i+1} 強化中 ${Math.max(0,s.timer).toFixed(1)}s`;
+      else if(s.has&&s.done) html+=`\n  #${i+1} 完成待取`;
+      else html+=`\n  #${i+1} 空`;
+    });
+  }
+  if(fid==='prebake'){
+    const pre=S.mach.prebake;
+    const last=pre.slots.length-1;
+    const cnt=pre.slots.filter(s=>s!==null).length;
+    html+=`\n步進式 ${cnt}/${P.preSlots}格`;
+    if(pre.phase==='moving') html+=`\n!! 步進中 ${pre.stepTimer.toFixed(1)}s (不可取放)`;
+    pre.slots.forEach((s,i)=>{
+      const tag=i===0?'入':i===last?'出':' ';
+      html+=`\n  ${tag} #${i+1} ${s!==null?'●':'○'}`;
+    });
+  }
+  if(fid==='oven'){
+    html+=`\n桿數: ${S.ovenQ.length}/${P.ovenRods}`;
+    if(S.ovenQ.length>0) html+=`\n最老: ${((S.time-S.ovenQ[0].enterTime)/60).toFixed(1)}min`;
+    if(S.ooMode) html+='\n!! 只出不進模式';
+  }
+  if(fid==='inputCart') html+=`\n本車已取: ${S.inCartCnt}/${P.cartPieces}\n下次旋轉: 第${Math.ceil((S.inCartCnt+1)/P.rackRotateN)*P.rackRotateN}片`;
+  if(fid==='outputCart') html+=`\n本車已放: ${S.outCartCnt}/${P.cartOutPieces}\n下次旋轉: 第${Math.ceil((S.outCartCnt+1)/P.rackOutRotateN)*P.rackOutRotateN}片`;
+  const arm=S.arms[fid];
+  if(arm){
+    html+=`\n手臂狀態: ${arm.state==='idle'?'閒置':arm.state==='busy'?'作業中':'換車'}`;
+    if(arm.state==='busy'&&arm.timer>0) html+=`\n手臂剩餘: ${arm.timer.toFixed(1)}s`;
+    if(arm.state==='cartchange'&&arm.timer>0) html+=`\n換車剩餘: ${arm.timer.toFixed(1)}s`;
+  }
+  return html;
+}
+
+function updateTip(){
+  if(!_tipHoverId)return;
+  const tip=document.getElementById('tip');
+  if(tip.style.display==='none')return;
+  tip.innerHTML=buildTipHtml(_tipHoverId);
+}
+
+function setupTip(){
+  const c=document.getElementById('lc'),tip=document.getElementById('tip');
+  c.addEventListener('mousemove',e=>{
+    const r=c.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;
+    let found=null;
+    for(const[id,eq] of Object.entries(EQ)){
+      if(mx>=tx(eq.x)&&mx<=tx(eq.x)+ts(eq.w)&&my>=ty(eq.y)&&my<=ty(eq.y)+ts(eq.h)){found={id,eq};break;}
+    }
+    if(found){
+      _tipHoverId=found.id;
+      tip.style.display='block';
+      tip.innerHTML=buildTipHtml(found.id);
+      // 先算 tooltip 尺寸，再決定位置
+      const tw=tip.offsetWidth, th=tip.offsetHeight;
+      let lx=mx+12, ly=my+12;
+      if(lx+tw>r.width) lx=mx-tw-12;
+      if(ly+th>r.height) ly=my-th-12;
+      if(lx<0) lx=4;
+      if(ly<0) ly=4;
+      tip.style.left=lx+'px';tip.style.top=ly+'px';
+    } else {_tipHoverId=null;tip.style.display='none';}
+  });
+  c.addEventListener('mouseleave',()=>{_tipHoverId=null;tip.style.display='none';});
+}
+
+// ================================================================
+//  參數存取 (localStorage)
+// ================================================================
+const PARAM_IDS=[
+  'p_cart_in_time','p_cart_pieces','p_rack_rotate_n','p_rack_rotate_time',
+  'p_armA_photo','p_armA_pick','p_armA_photo_n',
+  'p_conv1_go','p_conv1_back','p_armO_to_wash','p_armO_to_rack',
+  'p_wash_clean','p_wash_move','p_wash_slots','p_arm1_move','p_plat1_cap',
+  'p_arm2_to_str','p_arm2_to_pre','p_str_ct','p_str_n','p_pre_ct','p_pre_slots',
+  'p_arm3_to_p2','p_arm3_to_out','p_armL_in','p_armL_out','p_batch',
+  'p_ovenRods','p_bakeOk','p_bakeOver','p_conv2_go','p_conv2_back',
+  'p_armB_photo','p_armB_pick','p_armB_photo_n',
+  'p_cart_out_pieces','p_rack_out_rotate_n','p_rack_out_rotate_time','p_cart_out_time',
+  'p_simH','p_extra','p_action_gap','spdS'
+];
+
+function saveParams(){
+  const data={};
+  PARAM_IDS.forEach(id=>{const el=document.getElementById(id);if(el)data[id]=el.value;});
+  const json=JSON.stringify(data,null,2);
+  const blob=new Blob([json],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='sim_params.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  document.getElementById('stTxt').textContent='參數已下載為 sim_params.json';
+}
+
+function loadParams(){
+  const input=document.createElement('input');
+  input.type='file';input.accept='.json';
+  input.onchange=e=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      try{
+        const data=JSON.parse(ev.target.result);
+        PARAM_IDS.forEach(id=>{const el=document.getElementById(id);if(el&&data[id]!==undefined)el.value=data[id];});
+        document.getElementById('stTxt').textContent=`已載入 ${file.name}`;
+      }catch(err){document.getElementById('stTxt').textContent='檔案格式錯誤';}
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+function resetParams(){
+  location.reload();
+}
+
+function exportSnapshot(){
+  const text=id=>{const el=document.getElementById(id);return el?el.textContent.trim():'';};
+  // 來源 HTML 檔名 (含副檔名)
+  const srcFile=decodeURIComponent((location.pathname.split('/').pop()||'simulation_ui.html'));
+  // 主 canvas + 時間軸 canvas 截圖 (PNG base64)
+  const lcImg=document.getElementById('lc').toDataURL('image/png');
+  const tcImg=document.getElementById('tc').toDataURL('image/png');
+  // 參數
+  const paramRows=PARAM_IDS.map(id=>{
+    const el=document.getElementById(id);
+    if(!el)return '';
+    const lab=(el.closest('.pr')?.querySelector('label')?.textContent)||id;
+    const unit=(el.closest('.pr')?.querySelector('.u')?.textContent)||'';
+    return `<tr><td>${lab}</td><td><code>${id}</code></td><td class="num">${el.value}</td><td>${unit}</td></tr>`;
+  }).join('');
+  // 統計
+  const statRows=[
+    ['模擬時間',text('s_time')+' ('+text('s_pct')+')'],
+    ['穩態 UPH',text('s_uph_ss')+'  '+text('s_uph_ss2')],
+    ['出料 / 入料',text('s_out')+'  '+text('s_in')],
+    ['過烘',text('s_ob')+'  '+text('s_ob2')],
+    ['最長烘烤',text('s_mb')+'  '+text('s_mb2')],
+    ['只出不進',text('s_oo')+'  '+text('s_oo2')],
+    ['換車',text('s_cc')+'  '+text('s_cc2')],
+    ['烤箱',text('s_ov')+'  '+text('s_ov2')],
+    ['瓶頸設備',text('s_bn')+'  '+text('s_bn2')],
+  ].map(([k,v])=>`<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  // 利用率
+  const utilRows=STATION_DEFS.map(d=>{
+    const al=S.actionLog[d.id];if(!al)return '';
+    const total=al.busy+al.idle;
+    const pct=total>0?(al.busy/total*100):0;
+    const bar=`<div class="bar"><div class="bar-fill" style="width:${pct.toFixed(1)}%"></div></div>`;
+    return `<tr><td>${d.name}</td><td class="num">${al.busy.toFixed(0)}</td><td class="num">${al.idle.toFixed(0)}</td><td class="num">${pct.toFixed(1)}%</td><td>${bar}</td></tr>`;
+  }).filter(Boolean).join('');
+  // WIP
+  const B=S.buf;
+  const wipPairs=[
+    ['滑台1',B.conv1],['清洗中',S.mach.washer.queue.length],['洗完待取',S.mach.washer.exitReady],
+    ['暫存架',B.rack],['平台1',B.plat1],['強化完',B.strDone],
+    ['預烘機內',S.mach.prebake.slots?S.mach.prebake.slots.filter(s=>s!==null).length:0],
+    ['平台2下',B.plat2Lower],['平台2上',B.plat2Upper],['滑台2',B.conv2],
+  ];
+  const wipRows=wipPairs.map(([k,v])=>`<tr><td>${k}</td><td class="num">${v}</td></tr>`).join('');
+  // 事件記錄
+  const eventRows=S.events.slice(-50).map(e=>{
+    const h=Math.floor(e.t/3600),m=Math.floor((e.t%3600)/60),s=Math.floor(e.t%60);
+    const tt=`${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    return `<tr><td class="t">${tt}</td><td class="tp ${e.type}">${e.type}</td><td>${e.desc}</td></tr>`;
+  }).join('');
+  const expDate=new Date().toLocaleString('zh-TW');
+  const html=`<!DOCTYPE html>
+<html lang="zh-TW"><head><meta charset="UTF-8">
+<title>產線模擬快照 - ${srcFile} - ${expDate}</title>
+<style>
+body{font-family:'Microsoft JhengHei','Segoe UI',sans-serif;background:#1a1a2e;color:#e0e0e0;margin:0;padding:20px;line-height:1.5}
+h1{color:#e94560;font-size:18px;margin:0 0 6px}
+h2{color:#e94560;font-size:14px;margin:24px 0 8px;border-bottom:1px solid #0f3460;padding-bottom:4px}
+.meta{color:#999;font-size:12px;margin-bottom:6px}
+.meta b{color:#4ecca3}
+table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px}
+th,td{padding:4px 8px;border:1px solid #0f3460;text-align:left}
+th{background:#16213e;color:#e94560;font-weight:normal;font-size:11px}
+td.num{text-align:right;color:#4ecca3;font-family:Consolas,monospace}
+code{background:#0a0a23;padding:1px 4px;border-radius:2px;color:#999;font-size:10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+img{max-width:100%;border:1px solid #0f3460;background:#0a0a23;display:block;margin:8px 0}
+.bar{background:#0a0a23;height:12px;width:140px;border:1px solid #0f3460;border-radius:2px;overflow:hidden}
+.bar-fill{height:100%;background:#4ecca3}
+.tp.warn{color:#e94560}.tp.info{color:#3498db}.tp.ok{color:#4ecca3}
+.t{color:#4ecca3;width:60px}
+@media print{body{background:#fff;color:#000}h1,h2,th{color:#000}td.num{color:#000}}
+</style></head><body>
+<h1>產線模擬快照</h1>
+<div class="meta">來源檔: <b>${srcFile}</b></div>
+<div class="meta">匯出時間: <b>${expDate}</b></div>
+<div class="meta">模擬時間: <b>${text('s_time')}</b> (${text('s_pct')}) | 利用率起算: <b>${S.utilStartTime?(S.utilStartTime/60).toFixed(1)+' min':'未起算'}</b></div>
+
+<h2>主畫面</h2>
+<img src="${lcImg}" alt="main canvas">
+
+<h2>關鍵統計</h2>
+<table><tbody>${statRows}</tbody></table>
+
+<h2>各站利用率</h2>
+<table><thead><tr><th>設備</th><th>busy(s)</th><th>idle(s)</th><th>%</th><th>bar</th></tr></thead><tbody>${utilRows}</tbody></table>
+
+<h2>WIP 堆積</h2>
+<table><tbody>${wipRows}</tbody></table>
+
+<h2>設備即時狀態時間軸</h2>
+<img src="${tcImg}" alt="timeline canvas">
+
+<div class="grid">
+<div>
+<h2>參數</h2>
+<table><thead><tr><th>名稱</th><th>ID</th><th>值</th><th>單位</th></tr></thead><tbody>${paramRows}</tbody></table>
+</div>
+<div>
+<h2>事件記錄 (最後 50 筆)</h2>
+<table><tbody>${eventRows||'<tr><td>(無)</td></tr>'}</tbody></table>
+</div>
+</div>
+
+</body></html>`;
+  const blob=new Blob([html],{type:'text/html;charset=utf-8'});
+  const ts=new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+  const srcStem=srcFile.replace(/\.html?$/i,'');
+  const fname=`snapshot_${srcStem}_${ts}.html`;
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=fname;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  document.getElementById('stTxt').textContent=`已匯出 ${fname}`;
+}
+
+// ================================================================
+//  INIT
+// ================================================================
+window.addEventListener('load',()=>{
+  initCanvas();readP();initSim();draw();updateStats();drawTimeline();setupTip();
+  // 參數欄位變動時立即重新讀取,讓調整即時生效 (模擬執行中下一個動作會套用新值)
+  PARAM_IDS.forEach(id=>{
+    const el=document.getElementById(id);
+    if(el&&id!=='spdS')el.addEventListener('input',()=>readP());
+  });
+});
+window.addEventListener('resize',()=>{resizeC();draw();});
+</script>
+</body>
+</html>
