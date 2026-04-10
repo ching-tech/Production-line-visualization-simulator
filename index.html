@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>產線視覺化模擬器 | Production Line Visualization Simulator</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Microsoft JhengHei','Segoe UI',sans-serif;background:#1a1a2e;color:#e0e0e0;line-height:1.6;min-height:100vh;padding:40px 20px}
+.wrap{max-width:880px;margin:0 auto}
+h1{color:#e94560;font-size:28px;margin-bottom:6px}
+.sub{color:#999;font-size:14px;margin-bottom:32px}
+h2{color:#4ecca3;font-size:18px;margin:32px 0 12px;border-bottom:1px solid #0f3460;padding-bottom:6px}
+p{margin-bottom:12px;color:#ccc;font-size:14px}
+ul{margin:8px 0 16px 24px}
+li{margin-bottom:6px;color:#ccc;font-size:14px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:16px}
+@media(max-width:680px){.cards{grid-template-columns:1fr}}
+.card{background:#16213e;border:1px solid #0f3460;border-radius:8px;padding:24px;text-decoration:none;color:#e0e0e0;transition:transform .15s,border-color .15s;display:block}
+.card:hover{transform:translateY(-2px);border-color:#e94560}
+.card h3{color:#e94560;font-size:16px;margin-bottom:8px}
+.card .desc{color:#999;font-size:13px;margin-bottom:14px;min-height:48px}
+.card .tag{display:inline-block;background:#0a0a23;color:#4ecca3;font-size:11px;padding:3px 8px;border-radius:3px;margin-right:6px;margin-bottom:4px}
+.card .open{display:inline-block;margin-top:10px;color:#4ecca3;font-size:13px;font-weight:bold}
+.card .open:after{content:' →'}
+.foot{margin-top:48px;padding-top:20px;border-top:1px solid #0f3460;color:#666;font-size:12px;text-align:center}
+.foot a{color:#4ecca3;text-decoration:none}
+code{background:#0a0a23;padding:1px 6px;border-radius:3px;color:#4ecca3;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>產線視覺化模擬器</h1>
+<div class="sub">Production Line Visualization Simulator · 玻璃強化線吞吐量分析工具</div>
+
+<h2>關於這個專案</h2>
+<p>
+這是一個以單頁 HTML + JavaScript 寫成的<strong>產線吞吐量模擬器</strong>,用來分析包含入料貨架、清洗機、強化機、預烘機、烤箱、出料貨架等多站玻璃強化產線的穩態 UPH、瓶頸設備、各站利用率與烤箱負載。所有計算在瀏覽器端執行,不需要任何後端或安裝。
+</p>
+
+<h2>主要功能</h2>
+<ul>
+<li>即時 Canvas 視覺化整條產線的物料流動與手臂取放動作</li>
+<li>可調整 ~40 個設備參數(動作秒數、機台容量、CT 等),修改即時生效</li>
+<li>計算穩態 UPH、瓶頸設備、各站利用率、過烘片數、只出不進時間等</li>
+<li>預烘機採線性步進模型(入口/出口固定,移動中禁止取放)</li>
+<li>手臂3 採 drain/fill 平衡策略,避免動作間隔造成 throughput cliff</li>
+<li>各站利用率從「烤箱首次出料」之後才起算,排除暖機期影響</li>
+<li>全域動作間隔 (GAP) 參數,模擬真實設備動作之間的緩衝時間</li>
+<li>一鍵匯出 HTML 快照(含主畫面 PNG、所有參數、統計、利用率、事件記錄),方便比對不同設定</li>
+</ul>
+
+<h2>兩個版本</h2>
+<div class="cards">
+
+<a class="card" href="https://ching-tech.github.io/Production-line-visualization-simulator/simulation_ui.html">
+<h3>主版本(單一手臂3)</h3>
+<div class="desc">手臂3 同時負責預烘 → 平台2下層的入料,以及平台2上層 → 滑台2 的出料,採平衡策略避免空轉。</div>
+<span class="tag">單臂</span>
+<span class="tag">drain/fill 平衡</span>
+<span class="tag">基準模型</span>
+<div class="open">開啟模擬器</div>
+</a>
+
+<a class="card" href="https://ching-tech.github.io/Production-line-visualization-simulator/simulation_ui%20-%20%E6%89%8B%E8%87%823%E6%89%8B%E8%87%824%E5%88%86%E5%B7%A5.html">
+<h3>變體版本(手臂3 + 手臂4 並行)</h3>
+<div class="desc">把手臂3 拆成兩支獨立手臂:手臂3 專責入料、手臂4 專責出料,可同時並行作業,評估增加手臂的產能改善幅度。</div>
+<span class="tag">雙臂</span>
+<span class="tag">並行作業</span>
+<span class="tag">產能對照</span>
+<div class="open">開啟模擬器</div>
+</a>
+
+</div>
+
+<h2>使用方式</h2>
+<ul>
+<li>左側欄位調整設備參數(每個欄位都會即時生效)</li>
+<li>頂部按「▶ 開始」啟動模擬,「⏸ 暫停」暫停,「↻ 重置」回到 t=0</li>
+<li>右上角「速度」調整模擬倍率(預設 999×,跑 8 hr 大約幾秒完成)</li>
+<li>右側統計面板觀察 UPH、瓶頸、利用率、烤箱狀態</li>
+<li>「💾 存檔」/「📂 載入」儲存或載入參數組合(JSON)</li>
+<li>「📊 匯出」產生當下狀態的 HTML 快照,用瀏覽器直接開即可比對</li>
+<li>「❓ 說明」開啟瓶頸辨識 SOP(就是下面這份)</li>
+</ul>
+
+<h2>瓶頸辨識 SOP</h2>
+<p>傳統的「利用率最高 = 瓶頸」在連動式產線常常誤判 — 一台 100% 忙的設備可能是真瓶頸,也可能是被下游卡住或被上游餓死。模擬器把每個設備的時間細分為 5 種狀態,讓你能準確找出真正的瓶頸:</p>
+
+<h3>1. 5 種狀態分類</h3>
+<table style="border-collapse:collapse;font-size:13px;width:100%;margin:12px 0">
+<thead><tr><th style="border:1px solid #0f3460;padding:6px 8px;background:#16213e;color:#e94560;text-align:left;width:90px">符號</th><th style="border:1px solid #0f3460;padding:6px 8px;background:#16213e;color:#e94560;text-align:left;width:120px">名稱</th><th style="border:1px solid #0f3460;padding:6px 8px;background:#16213e;color:#e94560;text-align:left">意義</th></tr></thead>
+<tbody>
+<tr><td style="border:1px solid #0f3460;padding:6px 8px;color:#4ecca3;font-weight:bold">█ P</td><td style="border:1px solid #0f3460;padding:6px 8px">產出 (productive)</td><td style="border:1px solid #0f3460;padding:6px 8px">真正在做有用工作</td></tr>
+<tr><td style="border:1px solid #0f3460;padding:6px 8px;color:#e94560;font-weight:bold">▓ B</td><td style="border:1px solid #0f3460;padding:6px 8px">擋 (blocked)</td><td style="border:1px solid #0f3460;padding:6px 8px">想動但<strong>下游滿</strong>(出不去)</td></tr>
+<tr><td style="border:1px solid #0f3460;padding:6px 8px;color:#3498db;font-weight:bold">▒ S</td><td style="border:1px solid #0f3460;padding:6px 8px">餓 (starved)</td><td style="border:1px solid #0f3460;padding:6px 8px">想動但<strong>上游空</strong>(等不到料)</td></tr>
+<tr><td style="border:1px solid #0f3460;padding:6px 8px;color:#f39c12;font-weight:bold">░ CG</td><td style="border:1px solid #0f3460;padding:6px 8px">週期等 (cycleGap)</td><td style="border:1px solid #0f3460;padding:6px 8px">設計性等待(機台必要的循環時間)</td></tr>
+<tr><td style="border:1px solid #0f3460;padding:6px 8px;color:#666">·  I</td><td style="border:1px solid #0f3460;padding:6px 8px">真閒 (idle)</td><td style="border:1px solid #0f3460;padding:6px 8px">沒明確原因的閒置</td></tr>
+</tbody></table>
+
+<h3>2. 三個關鍵 UI 區塊</h3>
+<ul>
+<li><strong>「瓶頸設備」卡片</strong>:顯示主要瓶頸設備名 + 主因(自身慢 / 下游卡 / 上游缺 / 週期等) + 5 分鐘最久連續產出時間</li>
+<li><strong>「各站狀態 5min」卡片</strong>:全部設備按 P% 排名的 stacked bar(P/B/S/CG 用不同符號疊起來)</li>
+<li><strong>「WIP 堆積」卡片</strong>:每個 buffer 的即時數量 + 5 分鐘平均</li>
+</ul>
+
+<h3>3. 判讀流程</h3>
+<ol>
+<li><strong>跑滿 30 分鐘</strong>(讓暖機效應消失,數據才有代表性)</li>
+<li><strong>看「瓶頸設備」卡的主因</strong>:
+  <ul>
+    <li><code>自身慢</code> + 最久連續 &gt; 1 min → 它就是真瓶頸,直接改這個設備的參數</li>
+    <li><code>下游卡 ↓ 看下游</code> → 顯示的是症狀,真兇在下游</li>
+    <li><code>上游缺 ↑ 看上游</code> → 真兇在上游</li>
+    <li><code>週期等</code> → 機台 cycle 結構問題,要改 sequence</li>
+  </ul>
+</li>
+<li><strong>用 WIP 黃金法則</strong>找真瓶頸位置:<br>
+<em>「瓶頸的上游 WIP 滿、下游 WIP 空」</em>。掃過 WIP 列,找「上面數字大、下面數字小」的交界點 — 那就是真瓶頸所在的位置。</li>
+<li><strong>用「最久連續」校驗</strong>:
+  <ul>
+    <li>大(&gt; 1 min)= 真瓶頸,從不停手</li>
+    <li>小(&lt; 10 sec)= 假瓶頸,被頻繁打斷,真兇在第二、三名</li>
+  </ul>
+</li>
+<li><strong>匯出快照 → 改參數 → 重跑 → 再匯出 → diff</strong>。如果 UPH 沒進步,代表你改的是症狀而非病因,看新的瓶頸卡再來一次。</li>
+</ol>
+
+<h3>4. 常見陷阱</h3>
+<ul>
+<li><strong>看 P% 最高就以為是瓶頸</strong> — 必須同時看「主因」是不是「自身慢」,且「最久連續」夠長</li>
+<li><strong>改了某設備但 UPH 沒變</strong> — 你改的是症狀不是病因,看新的瓶頸卡(瓶頸會漂移)</li>
+<li><strong>多瓶頸接近(P% 差 &lt; 5%)</strong> — 表示產線平衡,改任何一個都可能讓另一個變瓶頸,要分批優化</li>
+<li><strong>WIP 上下游都滿</strong> — 表示瓶頸在最末端(出料貨架換車或 armB)</li>
+<li><strong>WIP 上下游都空</strong> — 表示瓶頸在最前端(入料貨架換車或 armA)</li>
+</ul>
+
+<h2>技術細節</h2>
+<p>
+單一 HTML 檔(含 CSS/JS,~90 KB),純前端,不需後端、不需 build、不需任何套件。在 Chrome / Edge / Firefox 任一現代瀏覽器點開即用。規格文件以 OpenSpec 管理,放在 <code>openspec/specs/simulation-ui/</code>。
+</p>
+
+<div class="foot">
+原始碼: <a href="https://github.com/ching-tech/Production-line-visualization-simulator">github.com/ching-tech/Production-line-visualization-simulator</a>
+</div>
+
+</div>
+</body>
+</html>
