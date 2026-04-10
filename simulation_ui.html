@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="icon" type="image/svg+xml" href="https://raw.githubusercontent.com/ching-tech/ching-tech.github.io/main/images/CTLogo.svg">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
 <title>產線模擬 - 強化機花型高空流道 03/31版</title>
 <style>
@@ -83,6 +84,7 @@ body{font-family:'Noto Sans TC','Microsoft JhengHei','Segoe UI',sans-serif;font-
     <button class="btn-rs" onclick="resetParams()" title="恢復 HTML 預設值">🔄 預設</button>
     <button class="btn-rs" onclick="exportSnapshot()" title="匯出當下參數+統計快照,方便比較">📊 匯出</button>
     <div class="st" id="stTxt">就緒</div>
+    <div style="margin-left:12px;border-left:1px solid #0f3460;padding-left:12px;display:flex;align-items:center;gap:8px;white-space:nowrap"><img src="https://raw.githubusercontent.com/ching-tech/ching-tech.github.io/main/images/CTLogo.svg" alt="ChingTech" height="28"><span style="font-size:13px;font-weight:600;color:#4ecca3;letter-spacing:.5px">ChingTech 擎添工業</span></div>
   </div>
 
   <!-- LEFT: Parameters (每個子動作拆開) -->
@@ -122,7 +124,7 @@ body{font-family:'Noto Sans TC','Microsoft JhengHei','Segoe UI',sans-serif;font-
       <div class="pr"><label>強化CT (每台1片)</label><input id="p_str_ct" type="number" value="120"><span class="u">秒</span></div>
       <div class="pr"><label>台數</label><input id="p_str_n" type="number" value="4"><span class="u">台</span></div>
     </div>
-    <div class="pg"><h3>預烘機 (步進式)</h3>
+    <div class="pg"><h3>預烘機 (步進式 · Early Release)</h3>
       <div class="pr"><label>步進移動時間(每步)</label><input id="p_pre_ct" type="number" value="10"><span class="u">秒</span></div>
       <div class="pr"><label>格數</label><input id="p_pre_slots" type="number" value="4"><span class="u">格</span></div>
     </div>
@@ -154,7 +156,7 @@ body{font-family:'Noto Sans TC','Microsoft JhengHei','Segoe UI',sans-serif;font-
     <div class="pg"><h3>模擬</h3>
       <div class="pr"><label>模擬時數</label><input id="p_simH" type="number" value="8"><span class="u">hr</span></div>
       <div class="pr"><label>額外異常延遲/換車</label><input id="p_extra" type="number" value="0"><span class="u">秒</span></div>
-      <div class="pr"><label>動作間隔(每動作+)</label><input id="p_action_gap" type="number" value="0" min="0" step="0.1"><span class="u">秒</span></div>
+      <div class="pr"><label>動作間隔(每動作+)</label><input id="p_action_gap" type="number" value="0.5" min="0" step="0.1"><span class="u">秒</span></div>
     </div>
   </div>
 
@@ -262,8 +264,8 @@ function readP(){
   const a=id=>g(id)+GAP; // 動作型參數: 自動補上動作間隔
   P={
     // Input cart
-    cartInTime:a('p_cart_in_time'), cartPieces:g('p_cart_pieces'),
-    rackRotateN:g('p_rack_rotate_n'), rackRotateTime:a('p_rack_rotate_time'),
+    cartInTime:g('p_cart_in_time'), cartPieces:g('p_cart_pieces'),
+    rackRotateN:g('p_rack_rotate_n'), rackRotateTime:g('p_rack_rotate_time'),
     // Arm A
     armAPhoto:a('p_armA_photo'), armAPick:a('p_armA_pick'), armAPhotoN:g('p_armA_photo_n'),
     get armAPerPiece(){ return this.armAPick + this.armAPhoto/this.armAPhotoN; },
@@ -274,7 +276,7 @@ function readP(){
     armOToWash:a('p_armO_to_wash'), armOToRack:a('p_armO_to_rack'),
     get armOTotal(){ return this.armOToWash+this.armOToRack; },
     // Washer (迴轉步進式) — washClean 為機台處理時間,不加間隔; washMove 為動作
-    washClean:g('p_wash_clean'), washMove:a('p_wash_move'), washSlots:g('p_wash_slots'),
+    washClean:g('p_wash_clean'), washMove:g('p_wash_move'), washSlots:g('p_wash_slots'),
     get washStep(){ return this.washClean+this.washMove; },
     get washTotal(){ return this.washStep; }, // 穩態CT=每步時間
     // Arm 1
@@ -284,8 +286,8 @@ function readP(){
     get arm2Total(){ return this.arm2ToStr+this.arm2ToPre; },
     // Strengthener (處理時間,不加間隔)
     strCT:g('p_str_ct'), strN:g('p_str_n'),  // 每台1片, CT=strCT
-    // Pre-bake (步進式: preCT = 每步移動時間, 屬於動作型)
-    preCT:a('p_pre_ct'), preSlots:g('p_pre_slots'),
+    // Pre-bake (步進式: preCT = 每步移動時間, 機台內部動作不加 GAP)
+    preCT:g('p_pre_ct'), preSlots:g('p_pre_slots'),
     // Arm 3
     arm3ToP2:a('p_arm3_to_p2'), arm3ToOut:a('p_arm3_to_out'),
     get arm3Total(){ return this.arm3ToP2+this.arm3ToOut; },
@@ -302,8 +304,8 @@ function readP(){
     armBPhoto:a('p_armB_photo'), armBPick:a('p_armB_pick'), armBPhotoN:g('p_armB_photo_n'),
     get armBPerPiece(){ return this.armBPick + this.armBPhoto/this.armBPhotoN; },
     // Output cart
-    cartOutTime:a('p_cart_out_time'), cartOutPieces:g('p_cart_out_pieces'),
-    rackOutRotateN:g('p_rack_out_rotate_n'), rackOutRotateTime:a('p_rack_out_rotate_time'),
+    cartOutTime:g('p_cart_out_time'), cartOutPieces:g('p_cart_out_pieces'),
+    rackOutRotateN:g('p_rack_out_rotate_n'), rackOutRotateTime:g('p_rack_out_rotate_time'),
     // Sim
     simH:g('p_simH'), extra:g('p_extra'),
   };
@@ -1076,14 +1078,31 @@ function simStep(dt){
       S.arms.arm3._onComplete=()=>{B.plat2Upper--;freeCar2.state='going';freeCar2.timer=P.conv2Go;setSt('conv2','working','去程');S.pieceCnt.arm3_out++;};
     } else if(canFill){
       // 預烘出口有料 → 取出放平台2下層 (未滿4)
-      armStart('arm3',[{action:'取預烘→平台2下',duration:P.arm3ToP2}]);
+      // 拆兩段: 前半取料(物料離開預烘出口) → 後半放料(物料放到平台2下)
+      // 前半完成時清空預烘出口, 讓預烘機可以提前步進 (與後半並行)
+      const halfDur=P.arm3ToP2/2;
+      let earlyReleased=false;
+      armStart('arm3',[
+        {action:'取預烘',duration:halfDur},
+        {action:'→放平台2下',duration:halfDur,onDone:()=>{
+          // 第二段開始 = 第一段結束 = 中途: 物料已離開預烘出口
+          // 前提: 入口已放料 (slots[0]!=null) 才提前釋放出口
+          const last=M.prebake.slots.length-1;
+          if(M.prebake.phase==='ready' && M.prebake.slots[0]!==null && M.prebake.slots[last]!==null){
+            M.prebake.slots[last]=null;
+            earlyReleased=true;
+          }
+        }}
+      ]);
       S.arms.arm3._onComplete=()=>{
-        const last=M.prebake.slots.length-1;
-        // 動作完成時再次確認 (動作期間預烘機可能進入 moving)
-        if(M.prebake.phase==='ready' && M.prebake.slots[last]!==null){
-          M.prebake.slots[last]=null;
-          B.plat2Lower++;S.pieceCnt.arm3_in++;
+        // 只在中途沒能提前釋放時才補清 (避免把步進後的新片誤刪)
+        if(!earlyReleased){
+          const last=M.prebake.slots.length-1;
+          if(M.prebake.slots[last]!==null && M.prebake.phase==='ready'){
+            M.prebake.slots[last]=null;
+          }
         }
+        B.plat2Lower++;S.pieceCnt.arm3_in++;
       };
     }
   }
@@ -1661,6 +1680,9 @@ function drawBufferIndicators(){
     ctx.fillStyle='#666';ctx.font=`${Math.max(7,ts(7))}px sans-serif`;ctx.textAlign='center';
     ctx.fillText('出',tx(pb.x)+cellW*0.75,cy+ts(10));
     ctx.fillText('入',tx(pb.x)+cellW*(last+0.75),cy+ts(10));
+    // Early Release 標示
+    ctx.fillStyle='#f39c12';ctx.font=`bold ${Math.max(7,ts(7))}px sans-serif`;
+    ctx.fillText('Early Release',tx(pb.x)+ts(pb.w)/2,ty(pb.y)-ts(3));
   }
 
   // --- 滑台2 到達等待 ---
@@ -1713,7 +1735,8 @@ function drawArmTransport(){
       {match:'取強化→預烘',from:'strengthen',to:'prebake'},
     ],
     arm3:[
-      {match:'取預烘→平台2下',from:'prebake',to:'platform2'},
+      {match:'取預烘',from:'prebake',to:'platform2'},
+      {match:'→放平台2下',from:'prebake',to:'platform2'},
       {match:'取平台2上→出料位',from:'platform2',to:'conv2',toSide:'load'},
     ],
     armL:[
@@ -1741,12 +1764,16 @@ function drawArmTransport(){
       else if(armId==='armO') origDur=action.includes('清洗機→暫存架')?P.armOToRack:P.armOToWash;
       else if(armId==='arm1') origDur=P.arm1Move;
       else if(armId==='arm2') origDur=action.includes('強化→預烘')?P.arm2ToPre:P.arm2ToStr;
-      else if(armId==='arm3') origDur=action.includes('出料位')?P.arm3ToOut:P.arm3ToP2;
+      else if(armId==='arm3') origDur=action.includes('出料位')?P.arm3ToOut:P.arm3ToP2/2;
       else if(armId==='armL') origDur=action.includes('入料')?P.armLIn:P.armLOut;
       else if(armId==='armB') origDur=P.armBPick;
       if(origDur<=0) origDur=30;
 
-      const progress=Math.max(0,Math.min(1,1-arm.timer/origDur));
+      let progress=Math.max(0,Math.min(1,1-arm.timer/origDur));
+      // arm3 取預烘拆兩段: 合併成一條連續弧線 (取預烘=前半0→0.5, →放平台2下=後半0.5→1)
+      if(armId==='arm3' && !action.includes('出料位')){
+        progress=action.includes('→放')?0.5+progress*0.5:progress*0.5;
+      }
 
       // 起終點: 如果涉及滑台, 用小車端點位置而非設備中心
       const fromConv=route.fromSide?getConvPos(route.from,route.fromSide):null;
@@ -2470,10 +2497,13 @@ function exportSnapshot(){
   // 統計
   const statRows=[
     ['模擬時間',text('s_time')+' ('+text('s_pct')+')'],
-    ['出料貨架 UPH',text('s_uph_ss')+'  '+text('s_uph_ss2')],
-    ['出料 / 入料',text('s_out')+'  '+text('s_in')],
-    ['過烘',text('s_ob')+'  '+text('s_ob2')],
+    ['出料貨架 UPH',text('s_uph_ss')],
+    ['出料貨架詳情',text('s_uph_ss2')],
+    ['烤箱出料 / 入料',text('s_out')+' / '+text('s_in')],
+    ['首次烤箱出料',text('s_oven_first')],
+    ['烤箱出料 UPH',text('s_oven_uph')],
     ['最長烘烤',text('s_mb')+'  '+text('s_mb2')],
+    ['過烘',text('s_ob')+'  '+text('s_ob2')],
     ['只出不進',text('s_oo')+'  '+text('s_oo2')],
     ['換車',text('s_cc')+'  '+text('s_cc2')],
     ['烤箱',text('s_ov')+'  '+text('s_ov2')],
