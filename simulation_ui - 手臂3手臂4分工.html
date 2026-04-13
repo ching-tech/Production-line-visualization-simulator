@@ -2355,10 +2355,13 @@ function exportSnapshot(){
   // 統計
   const statRows=[
     ['模擬時間',text('s_time')+' ('+text('s_pct')+')'],
-    ['出料貨架 UPH',text('s_uph_ss')+'  '+text('s_uph_ss2')],
-    ['出料 / 入料',text('s_out')+'  '+text('s_in')],
-    ['過烘',text('s_ob')+'  '+text('s_ob2')],
+    ['出料貨架 UPH',text('s_uph_ss')],
+    ['出料貨架詳情',text('s_uph_ss2')],
+    ['烤箱出料 / 入料',text('s_out')+' / '+text('s_in')],
+    ['首次烤箱出料',text('s_oven_first')],
+    ['烤箱出料 UPH',text('s_oven_uph')],
     ['最長烘烤',text('s_mb')+'  '+text('s_mb2')],
+    ['過烘',text('s_ob')+'  '+text('s_ob2')],
     ['只出不進',text('s_oo')+'  '+text('s_oo2')],
     ['換車',text('s_cc')+'  '+text('s_cc2')],
     ['烤箱',text('s_ov')+'  '+text('s_ov2')],
