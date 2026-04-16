@@ -346,7 +346,7 @@ function readP(){
 const S = {
   running:false, time:0, speed:100, lastTS:0,
   // 烤箱 (37稈位旋轉盤 + I/O 指標)
-  ovenSlots:[], ovenPos:0, ovenStepping:false, ovenStepEnd:0, rodId:0,
+  ovenSlots:[], ovenPos:0, ovenStepping:false, ovenStepEnd:0, ovenSeekUnload:false, rodId:0,
   totalIn:0, totalOut:0,
   inCartCnt:0, outCartCnt:0,
   ccIn:0, ccOut:0, ccTime:0,
@@ -499,6 +499,7 @@ function initSim(){
   S.ovenPos=0;             // 當前 I/O 位置 (0~ovenRods-1)
   S.ovenStepping=false;    // 是否正在步進 (步進中手臂L不可動作)
   S.ovenStepEnd=0;         // 本次步進完成時間
+  S.ovenSeekUnload=false;  // 是否正在「旋轉到目標稈位出料」途中 (seek 中不入料)
   S.rodId=0;
   S.ovenHistory=[];       // 已出爐的桿紀錄 [{id,pos,enterTime,exitTime,bakeTime,interval,overBaked}]
   S.lastRodEnterTime=0;   // 上一根桿入爐時間 (用來算入料間隔)
@@ -836,14 +837,13 @@ function simStep(dt){
       }
       if(id==='arm3'){
         const preLast=M.prebake.slots.length-1;
-        const canFill=M.prebake.phase==='ready' && M.prebake.slots[preLast]!==null && B.plat2Lower<P.batch && !S.ooMode;
+        const canFill=M.prebake.phase==='ready' && M.prebake.slots[preLast]!==null && B.plat2Lower<P.batch;
         const canDrain=B.plat2Upper>0 && M.conv2.find(c=>c.state==='ready');
         if(B.plat2Upper>0 && !M.conv2.find(c=>c.state==='ready')) {r.blocked=1; return r;}
         if(B.plat2Lower>=P.batch && !canDrain) {r.blocked=1; return r;}
         if(!canFill && !canDrain && B.plat2Upper===0 && (M.prebake.slots[preLast]===null||M.prebake.phase==='moving')){
           r.starved=1; return r;
         }
-        if(S.ooMode) {r.cycleGap=1; return r;}
         r.idle=1; return r;
       }
       if(id==='armL'){
@@ -1096,7 +1096,7 @@ function simStep(dt){
     const freeCar2=M.conv2.find(c=>c.state==='ready');
     const canDrain = B.plat2Upper>0 && !!freeCar2;
     const preLast=M.prebake.slots.length-1;
-    const canFill = M.prebake.phase==='ready' && M.prebake.slots[preLast]!==null && B.plat2Lower<P.batch && !S.ooMode;
+    const canFill = M.prebake.phase==='ready' && M.prebake.slots[preLast]!==null && B.plat2Lower<P.batch;
     if(canDrain){
       // 上層有料且有空車 → 取出放滑台2
       armStart('arm3',[{action:'取平台2上→出料位',duration:P.arm3ToOut}]);
@@ -1139,9 +1139,11 @@ function simStep(dt){
   }
 
   // -- 手臂L + 烤箱: 37稈位旋轉盤模型 --
-  //    規則: 入料後自動步進1稈; 出料不自動步進
-  //          ooMode 下只出不進, 需步進到目標稈
-  //          上層空且有可出料稈時, 若當前位不可出則步進找目標
+  //    優先序: 出料 > 入料 (一旦鎖定出料, 旋轉期間不入料)
+  //    規則: 入料後自動步進1稈;
+  //          出料不自動步進;
+  //          需出料且當前位不可出 → 進入 seek 模式, 持續步進直到到達目標 (途中即使有空稈也不入料);
+  //          ooMode 下不入料, seek 中上層滿則暫停等待上層清空
   if(!armBusy('armL') && !S.ovenStepping){
     const cur=S.ovenSlots[S.ovenPos];
     const anyReady=ovenAnyReady();
@@ -1151,8 +1153,63 @@ function simStep(dt){
     const canLoad=B.plat2Lower>=P.batch && !S.ooMode;
     const curReady=cur && ((S.time-cur.enterTime)>=P.bakeOk || S.ooMode);
 
-    // 優先序 1: 入料 (current 空 + 下層滿 + 非只出不進)
-    if(!S.ooMode && cur===null && canLoad){
+    // 保險: 若條件已不需出料, 清除 seek 旗標
+    if(S.ovenSeekUnload && !needUnload) S.ovenSeekUnload=false;
+
+    // 出料動作 (共用: 原地出料, 清除 seek 旗標)
+    const doUnload=()=>{
+      armStart('armL',[{action:`出料(桿#${S.ovenPos+1}→上層) ${P.batch}片`,duration:P.armLOut}]);
+      S.arms.armL._onComplete=()=>{
+        const rod=S.ovenSlots[S.ovenPos];
+        if(!rod){S.ovenSeekUnload=false;return;}
+        S.ovenSlots[S.ovenPos]=null;
+        const bk=S.time-rod.enterTime;
+        S.maxBake=Math.max(S.maxBake,bk);
+        S.ovenHistory.push({id:rod.id,pos:S.ovenPos,enterTime:rod.enterTime,exitTime:S.time,bakeTime:bk,interval:rod.interval||0,overBaked:bk>P.bakeOver});
+        if(bk>P.bakeOver){
+          rod.overBaked=true;S.obEvents++;S.obPieces+=rod.pieces;
+          addEv('warn','過烘!',`桿#${rod.id} ${(bk/60).toFixed(1)}min`);
+          if(!S.ooMode){S.ooMode=true;S.ooStart=S.time;addEv('warn','只出不進','手臂L停止入料');}
+        }
+        B.plat2Upper=rod.pieces;
+        S.totalOut+=rod.pieces;S.pieceCnt.armL_out+=rod.pieces;
+        if(!S.utilStarted){
+          S.utilStarted=true; S.utilStartTime=S.time;
+          addEv('info','首次出料',`@ ${(S.time/60).toFixed(1)}min (穩態 UPH 起算)`);
+        }
+        if(S.ooMode){
+          const stillOver=S.ovenSlots.some(s=>s && (S.time-s.enterTime)>=P.bakeOver);
+          if(!stillOver || !ovenHasAny()){
+            S.ooTotal+=S.time-S.ooStart;S.ooMode=false;
+            addEv('ok','恢復正常',`只出不進${((S.time-S.ooStart)/60).toFixed(1)}min`);
+          }
+        }
+        S.ovenSeekUnload=false; // 出料完成 → 離開 seek
+        // 出料不自動步進
+      };
+    };
+
+    if(S.ovenSeekUnload){
+      // Seek 模式: 鎖定旋轉到目標稈, 途中不入料
+      if(canUnload){
+        if(curReady) doUnload();
+        else { S.ovenStepping=true; S.ovenStepEnd=S.time+P.ovenStep; }
+      }
+      // 上層滿: 暫停 seek (idle) 等上層清空
+    }
+    // 出料優先 (尚未進 seek): 需出料 + 上層空
+    else if(needUnload && canUnload){
+      if(curReady){
+        doUnload();
+      } else {
+        // 當前位不可出料 → 進入 seek 模式, 開始旋轉
+        S.ovenSeekUnload=true;
+        S.ovenStepping=true;
+        S.ovenStepEnd=S.time+P.ovenStep;
+      }
+    }
+    // 無出料需求 (或上層未空) → 入料 (當前位空 + 下層滿 + 非只出不進)
+    else if(!S.ooMode && cur===null && canLoad){
       armStart('armL',[{action:`入料(下層→桿#${S.ovenPos+1}) ${P.batch}片`,duration:P.armLIn}]);
       S.arms.armL._onComplete=()=>{
         B.plat2Lower-=P.batch;
@@ -1165,44 +1222,6 @@ function simStep(dt){
         S.ovenStepEnd=S.time+P.ovenStep;
       };
     }
-    // 優先序 2: 出料 (需出料 + 上層空)
-    else if(needUnload && canUnload){
-      if(curReady){
-        // 當前稈可出料
-        armStart('armL',[{action:`出料(桿#${S.ovenPos+1}→上層) ${P.batch}片`,duration:P.armLOut}]);
-        S.arms.armL._onComplete=()=>{
-          const rod=S.ovenSlots[S.ovenPos];
-          if(!rod)return;
-          S.ovenSlots[S.ovenPos]=null;
-          const bk=S.time-rod.enterTime;
-          S.maxBake=Math.max(S.maxBake,bk);
-          S.ovenHistory.push({id:rod.id,pos:S.ovenPos,enterTime:rod.enterTime,exitTime:S.time,bakeTime:bk,interval:rod.interval||0,overBaked:bk>P.bakeOver});
-          if(bk>P.bakeOver){
-            rod.overBaked=true;S.obEvents++;S.obPieces+=rod.pieces;
-            addEv('warn','過烘!',`桿#${rod.id} ${(bk/60).toFixed(1)}min`);
-            if(!S.ooMode){S.ooMode=true;S.ooStart=S.time;addEv('warn','只出不進','手臂L停止入料');}
-          }
-          B.plat2Upper=rod.pieces;
-          S.totalOut+=rod.pieces;S.pieceCnt.armL_out+=rod.pieces;
-          if(!S.utilStarted){
-            S.utilStarted=true; S.utilStartTime=S.time;
-            addEv('info','首次出料',`@ ${(S.time/60).toFixed(1)}min (穩態 UPH 起算)`);
-          }
-          if(S.ooMode){
-            const stillOver=S.ovenSlots.some(s=>s && (S.time-s.enterTime)>=P.bakeOver);
-            if(!stillOver || !ovenHasAny()){
-              S.ooTotal+=S.time-S.ooStart;S.ooMode=false;
-              addEv('ok','恢復正常',`只出不進${((S.time-S.ooStart)/60).toFixed(1)}min`);
-            }
-          }
-          // 出料不自動步進
-        };
-      } else {
-        // 當前位非可出料稈 → 步進 1 稈找目標
-        S.ovenStepping=true;
-        S.ovenStepEnd=S.time+P.ovenStep;
-      }
-    }
   }
 
   // 烤箱顯示 (步進中顯示倒數, 類似清洗機旋轉)
@@ -1211,7 +1230,9 @@ function simStep(dt){
     const st=S.ooMode?'blocked':'working';
     const stepRemain=Math.max(0,S.ovenStepEnd-S.time);
     const nextPos=((S.ovenPos+1)%P.ovenRods)+1;
-    const msg=S.ovenStepping?`步進中 ${stepRemain.toFixed(0)}s → #${nextPos} (不可取放)`:
+    const seekTag=S.ovenSeekUnload?'旋轉出料':'步進';
+    const msg=S.ovenStepping?`${seekTag}中 ${stepRemain.toFixed(0)}s → #${nextPos} (不可取放)`:
+              S.ovenSeekUnload?`旋轉出料中 (等上層清空, I/O:#${S.ovenPos+1})`:
               S.ooMode?`過烘-只出不進 (I/O:#${S.ovenPos+1})`:
               `烘烤 ${_ovCnt}/${P.ovenRods}桿 (I/O:#${S.ovenPos+1})`;
     setSt('oven',st,msg);
@@ -2411,10 +2432,12 @@ function buildTipHtml(fid){
     const _oc=ovenCount();
     html+=`\n桿數: ${_oc}/${P.ovenRods}`;
     html+=`\nI/O 位置: 桿#${S.ovenPos+1}`;
+    if(S.ovenSeekUnload) html+='\n!! 旋轉出料模式 (途中不入料)';
     if(S.ovenStepping){
       const rem=Math.max(0,S.ovenStepEnd-S.time);
       const nextPos=(S.ovenPos+1)%P.ovenRods+1;
-      html+=`\n!! 步進中 ${rem.toFixed(1)}s → #${nextPos} (不可取放)`;
+      const tag=S.ovenSeekUnload?'旋轉出料':'步進';
+      html+=`\n!! ${tag}中 ${rem.toFixed(1)}s → #${nextPos} (不可取放)`;
     }
     if(_oc>0) html+=`\n首根時長: ${((S.time-ovenOldestEnterTime())/60).toFixed(1)}min`;
     if(S.ooMode) html+='\n!! 只出不進模式';

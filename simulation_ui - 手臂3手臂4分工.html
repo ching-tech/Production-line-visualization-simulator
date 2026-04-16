@@ -139,6 +139,7 @@ body{font-family:'Noto Sans TC','Microsoft JhengHei','Segoe UI',sans-serif;font-
       <div class="pr"><label>出料(桿→平台2,4片)</label><input id="p_armL_out" type="number" value="120"><span class="u">秒</span></div>
       <div class="pr"><label>每桿掛架數</label><input id="p_batch" type="number" value="4"><span class="u">片</span></div>
       <div class="pr"><label>烤箱總桿數</label><input id="p_ovenRods" type="number" value="37"><span class="u">桿</span></div>
+      <div class="pr"><label>烤箱步進時間</label><input id="p_oven_step" type="number" value="9"><span class="u">秒/稈</span></div>
       <div class="pr"><label>烘烤時間(可出料)</label><input id="p_bakeOk" type="number" value="120"><span class="u">min</span></div>
       <div class="pr"><label>過烘時間(強制只出不進)</label><input id="p_bakeOver" type="number" value="200"><span class="u">min</span></div>
     </div>
@@ -293,6 +294,7 @@ function readP(){
     get armLTotal(){ return this.armLIn+this.armLOut; },
     // Oven (烘烤時間,不加間隔)
     ovenRods:g('p_ovenRods'), // 烤箱總桿數 (37)
+    ovenStep:g('p_oven_step'), // 烤箱步進時間 (秒/稈)
     bakeOk:g('p_bakeOk')*60, bakeOver:g('p_bakeOver')*60,
     // Conveyor 2
     conv2Go:a('p_conv2_go'), conv2Back:a('p_conv2_back'),
@@ -340,8 +342,8 @@ function readP(){
 // ================================================================
 const S = {
   running:false, time:0, speed:100, lastTS:0,
-  // 烤箱
-  ovenQ:[], rodId:0,
+  // 烤箱 (37稈位旋轉盤 + I/O 指標)
+  ovenSlots:[], ovenPos:0, ovenStepping:false, ovenStepEnd:0, ovenSeekUnload:false, rodId:0,
   totalIn:0, totalOut:0,
   inCartCnt:0, outCartCnt:0,
   ccIn:0, ccOut:0, ccTime:0,
@@ -476,8 +478,13 @@ function initSim(){
   ['armA','armO','arm1','arm2','arm3','arm4','armL','armB'].forEach(id=>{
     S.arms[id]={state:'idle',timer:0,action:'',queue:[]};
   });
-  // 烤箱
-  S.ovenQ=[]; S.rodId=0;
+  // 烤箱: 37稈位陣列(旋轉盤), I/O 指標, 步進旗標
+  S.ovenSlots=Array(P.ovenRods).fill(null); // 每位置: null 或 {id,pieces,enterTime,interval,pos}
+  S.ovenPos=0;             // 當前 I/O 位置 (0~ovenRods-1)
+  S.ovenStepping=false;    // 是否正在步進 (步進中手臂L不可動作)
+  S.ovenStepEnd=0;         // 本次步進完成時間
+  S.ovenSeekUnload=false;  // 是否正在「旋轉到目標稈位出料」途中 (seek 中不入料)
+  S.rodId=0;
   S.ovenHistory=[];
   S.lastRodEnterTime=0;
   S.totalIn=0;S.totalOut=0;
@@ -503,6 +510,22 @@ function initSim(){
 //  手臂動作系統：一次只做一件事，做完才接下一個
 // ================================================================
 function armBusy(id){ return S.arms[id].state!=='idle'; }
+
+// ====== 烤箱輔助函式 (37稈位旋轉盤模型) ======
+function ovenCount(){ let n=0; for(const s of S.ovenSlots) if(s) n++; return n; }
+function ovenHasAny(){ return S.ovenSlots.some(s=>s!==null); }
+function ovenAnyReady(){ return S.ovenSlots.some(s=>s && (S.time-s.enterTime)>=P.bakeOk); }
+function ovenOldestEnterTime(){
+  let min=Infinity;
+  for(const s of S.ovenSlots) if(s && s.enterTime<min) min=s.enterTime;
+  return min===Infinity ? 0 : min;
+}
+function ovenRodsSortedByAge(){
+  return S.ovenSlots
+    .map((s,i)=>s?{...s,pos:i}:null)
+    .filter(x=>x)
+    .sort((a,b)=>a.enterTime-b.enterTime);
+}
 function armStart(id, actions){
   const arm=S.arms[id]; if(arm.state!=='idle') return false;
   arm.queue=actions.slice(1);
@@ -719,9 +742,10 @@ function simStep(dt){
         return r;
       }
       if(id==='oven'){
-        if(S.ovenQ.length===0){r.starved=1; return r;}
-        r.productive=S.ovenQ.length/P.ovenRods;
-        r.starved=(P.ovenRods-S.ovenQ.length)/P.ovenRods;
+        const _oc=ovenCount();
+        if(_oc===0){r.starved=1; return r;}
+        r.productive=_oc/P.ovenRods;
+        r.starved=(P.ovenRods-_oc)/P.ovenRods;
         return r;
       }
       if(st.state==='working'||st.state==='cart_change'){r.productive=1; return r;}
@@ -759,10 +783,9 @@ function simStep(dt){
       if(id==='arm3'){
         // 變體: arm3 只負責 fill (預烘→平台2 下)
         const preLast=M.prebake.slots.length-1;
-        const canFill=M.prebake.phase==='ready' && M.prebake.slots[preLast]!==null && B.plat2Lower<P.batch && !S.ooMode;
+        const canFill=M.prebake.phase==='ready' && M.prebake.slots[preLast]!==null && B.plat2Lower<P.batch;
         if(B.plat2Lower>=P.batch) {r.blocked=1; return r;}
         if(M.prebake.slots[preLast]===null||M.prebake.phase==='moving') {r.starved=1; return r;}
-        if(S.ooMode) {r.cycleGap=1; return r;}
         r.idle=1; return r;
       }
       if(id==='arm4'){
@@ -773,12 +796,14 @@ function simStep(dt){
         r.idle=1; return r;
       }
       if(id==='armL'){
-        const oldestReady=S.ovenQ.length>0 && (S.time-S.ovenQ[0].enterTime)>=P.bakeOk;
-        const needUnload=(oldestReady||S.ooMode) && S.ovenQ.length>0;
+        if(S.ovenStepping){r.cycleGap=1; return r;}
+        const oldestReady=ovenAnyReady();
+        const needUnload=(oldestReady||S.ooMode) && ovenHasAny();
         if(needUnload && B.plat2Upper!==0) {r.blocked=1; return r;}
-        if(B.plat2Lower>=P.batch && S.ovenQ.length>=P.ovenRods && !S.ooMode){r.blocked=1; return r;}
+        const _oc=ovenCount();
+        if(B.plat2Lower>=P.batch && _oc>=P.ovenRods && !S.ooMode){r.blocked=1; return r;}
         if(B.plat2Lower<P.batch && !needUnload) {r.starved=1; return r;}
-        if(!needUnload && S.ovenQ.length<P.ovenRods && B.plat2Lower<P.batch){r.starved=1; return r;}
+        if(!needUnload && _oc<P.ovenRods && B.plat2Lower<P.batch){r.starved=1; return r;}
         r.cycleGap=1; return r;
       }
       if(id==='armB'){
@@ -1005,7 +1030,7 @@ function simStep(dt){
   // -- 手臂3 (入料專責: 預烘出口 → 平台2下層) --
   if(!armBusy('arm3')){
     const preLast=M.prebake.slots.length-1;
-    const canFill = M.prebake.phase==='ready' && M.prebake.slots[preLast]!==null && B.plat2Lower<P.batch && !S.ooMode;
+    const canFill = M.prebake.phase==='ready' && M.prebake.slots[preLast]!==null && B.plat2Lower<P.batch;
     if(canFill){
       const halfDur=P.arm3ToP2/2;
       let earlyReleased=false;
@@ -1046,64 +1071,115 @@ function simStep(dt){
     }
   }
 
-  // -- 手臂L + 烤箱: 連續4片操作 --
-  if(!armBusy('armL')){
-    const oldestReady=S.ovenQ.length>0&&(S.time-S.ovenQ[0].enterTime)>=P.bakeOk;
-    const needUnload=(oldestReady||S.ooMode)&&S.ovenQ.length>0;
+  // -- 烤箱步進 tick: 步進完成後 ovenPos 前進 1 (單向循環) --
+  if(S.ovenStepping && S.time>=S.ovenStepEnd){
+    S.ovenPos=(S.ovenPos+1) % P.ovenRods;
+    S.ovenStepping=false;
+  }
 
-    // 出爐條件: 上層全空 且 有桿到期
-    if(needUnload && B.plat2Upper===0){
-      // 連續出4片 (1桿) → 手臂L做4次取放, 用armLOut秒完成整桿
-      armStart('armL',[{action:`出料(桿→上層) 1桿/${P.batch}片`,duration:P.armLOut}]);
+  // -- 手臂L + 烤箱: 37稈位旋轉盤模型 --
+  //    優先序: 出料 > 入料 (一旦鎖定出料, 旋轉期間不入料)
+  //    規則: 入料後自動步進1稈;
+  //          出料不自動步進;
+  //          需出料且當前位不可出 → 進入 seek 模式, 持續步進直到到達目標 (途中即使有空稈也不入料);
+  //          ooMode 下不入料, seek 中上層滿則暫停等待上層清空
+  if(!armBusy('armL') && !S.ovenStepping){
+    const cur=S.ovenSlots[S.ovenPos];
+    const anyReady=ovenAnyReady();
+    const hasRod=ovenHasAny();
+    const needUnload=(anyReady||S.ooMode) && hasRod;
+    const canUnload=B.plat2Upper===0;
+    const canLoad=B.plat2Lower>=P.batch && !S.ooMode;
+    const curReady=cur && ((S.time-cur.enterTime)>=P.bakeOk || S.ooMode);
+
+    // 保險: 若條件已不需出料, 清除 seek 旗標
+    if(S.ovenSeekUnload && !needUnload) S.ovenSeekUnload=false;
+
+    // 出料動作 (共用: 原地出料, 清除 seek 旗標)
+    const doUnload=()=>{
+      armStart('armL',[{action:`出料(桿#${S.ovenPos+1}→上層) ${P.batch}片`,duration:P.armLOut}]);
       S.arms.armL._onComplete=()=>{
-        if(S.ovenQ.length===0)return;
-        const rod=S.ovenQ.shift();
+        const rod=S.ovenSlots[S.ovenPos];
+        if(!rod){S.ovenSeekUnload=false;return;}
+        S.ovenSlots[S.ovenPos]=null;
         const bk=S.time-rod.enterTime;
         S.maxBake=Math.max(S.maxBake,bk);
-        S.ovenHistory.push({id:rod.id,enterTime:rod.enterTime,exitTime:S.time,bakeTime:bk,interval:rod.interval||0,overBaked:bk>P.bakeOver});
+        S.ovenHistory.push({id:rod.id,pos:S.ovenPos,enterTime:rod.enterTime,exitTime:S.time,bakeTime:bk,interval:rod.interval||0,overBaked:bk>P.bakeOver});
         if(bk>P.bakeOver){
           rod.overBaked=true;S.obEvents++;S.obPieces+=rod.pieces;
           addEv('warn','過烘!',`桿#${rod.id} ${(bk/60).toFixed(1)}min`);
           if(!S.ooMode){S.ooMode=true;S.ooStart=S.time;addEv('warn','只出不進','手臂L停止入料');}
         }
-        B.plat2Upper=rod.pieces; // 一次放滿上層
+        B.plat2Upper=rod.pieces;
         S.totalOut+=rod.pieces;S.pieceCnt.armL_out+=rod.pieces;
-        // 紀錄首次出料時刻 (供穩態 UPH 起算用; 利用率現在從 t=0 就累計, 不再歸零)
         if(!S.utilStarted){
           S.utilStarted=true; S.utilStartTime=S.time;
           addEv('info','首次出料',`@ ${(S.time/60).toFixed(1)}min (穩態 UPH 起算)`);
         }
-        // Bug 1.2: 解除只出不進 — 必須所有桿都 < bakeOver (不只是 bakeOk)
         if(S.ooMode){
-          const stillOver=S.ovenQ.some(r=>(S.time-r.enterTime)>=P.bakeOver);
-          if(!stillOver||S.ovenQ.length===0){
+          const stillOver=S.ovenSlots.some(s=>s && (S.time-s.enterTime)>=P.bakeOver);
+          if(!stillOver || !ovenHasAny()){
             S.ooTotal+=S.time-S.ooStart;S.ooMode=false;
             addEv('ok','恢復正常',`只出不進${((S.time-S.ooStart)/60).toFixed(1)}min`);
           }
         }
+        S.ovenSeekUnload=false; // 出料完成 → 離開 seek
+        // 出料不自動步進
       };
+    };
+
+    if(S.ovenSeekUnload){
+      // Seek 模式: 鎖定旋轉到目標稈, 途中不入料
+      if(canUnload){
+        if(curReady) doUnload();
+        else { S.ovenStepping=true; S.ovenStepEnd=S.time+P.ovenStep; }
+      }
+      // 上層滿: 暫停 seek (idle) 等上層清空
     }
-    // 入爐條件: 下層滿4片 且 烤箱未滿 且 非只出不進
-    else if(B.plat2Lower>=P.batch && S.ovenQ.length<P.ovenRods && !S.ooMode){
-      armStart('armL',[{action:`入料(下層→桿) 1桿/${P.batch}片`,duration:P.armLIn}]);
+    // 出料優先 (尚未進 seek): 需出料 + 上層空
+    else if(needUnload && canUnload){
+      if(curReady){
+        doUnload();
+      } else {
+        // 當前位不可出料 → 進入 seek 模式, 開始旋轉
+        S.ovenSeekUnload=true;
+        S.ovenStepping=true;
+        S.ovenStepEnd=S.time+P.ovenStep;
+      }
+    }
+    // 無出料需求 (或上層未空) → 入料 (當前位空 + 下層滿 + 非只出不進)
+    else if(!S.ooMode && cur===null && canLoad){
+      armStart('armL',[{action:`入料(下層→桿#${S.ovenPos+1}) ${P.batch}片`,duration:P.armLIn}]);
       S.arms.armL._onComplete=()=>{
         B.plat2Lower-=P.batch;
         const interval=S.lastRodEnterTime>0?(S.time-S.lastRodEnterTime):0;
-        S.ovenQ.push({id:S.rodId++,pieces:P.batch,enterTime:S.time,interval});
+        S.ovenSlots[S.ovenPos]={id:S.rodId++,pieces:P.batch,enterTime:S.time,interval,pos:S.ovenPos};
         S.lastRodEnterTime=S.time;
         S.totalIn+=P.batch;S.pieceCnt.armL_in+=P.batch;
+        // 入料完成 → 自動步進 1 稈
+        S.ovenStepping=true;
+        S.ovenStepEnd=S.time+P.ovenStep;
       };
     }
   }
 
-  // 烤箱顯示
-  if(S.ovenQ.length>0) setSt('oven',S.ooMode?'blocked':'working',
-    S.ooMode?'過烘-只出不進':`烘烤 ${S.ovenQ.length}/${P.ovenRods}桿`);
-  else setSt('oven','idle','空');
+  // 烤箱顯示 (步進中顯示倒數, 類似清洗機旋轉)
+  const _ovCnt=ovenCount();
+  if(_ovCnt>0 || S.ovenStepping){
+    const st=S.ooMode?'blocked':'working';
+    const stepRemain=Math.max(0,S.ovenStepEnd-S.time);
+    const nextPos=((S.ovenPos+1)%P.ovenRods)+1;
+    const seekTag=S.ovenSeekUnload?'旋轉出料':'步進';
+    const msg=S.ovenStepping?`${seekTag}中 ${stepRemain.toFixed(0)}s → #${nextPos} (不可取放)`:
+              S.ovenSeekUnload?`旋轉出料中 (等上層清空, I/O:#${S.ovenPos+1})`:
+              S.ooMode?`過烘-只出不進 (I/O:#${S.ovenPos+1})`:
+              `烘烤 ${_ovCnt}/${P.ovenRods}桿 (I/O:#${S.ovenPos+1})`;
+    setSt('oven',st,msg);
+  } else setSt('oven','idle','空');
 
   // 過烘偵測
-  if(S.ovenQ.length>0&&!S.ooMode){
-    const old=S.time-S.ovenQ[0].enterTime;
+  if(_ovCnt>0 && !S.ooMode){
+    const old=S.time-ovenOldestEnterTime();
     if(old>=P.bakeOver){S.ooMode=true;S.ooStart=S.time;addEv('warn','只出不進',`首根時長${(old/60).toFixed(1)}min`);}
   }
 
@@ -1308,6 +1384,19 @@ function drawEq(id,eq){
     // Shelf lines
     ctx.strokeStyle=col+'33';ctx.lineWidth=.5;
     for(let i=1;i<6;i++){const ry=y+(h/6)*i;ctx.beginPath();ctx.moveTo(x+3,ry);ctx.lineTo(x+w-3,ry);ctx.stroke();}
+    // 步進中: 藍色脈動外框 (類似清洗機旋轉高亮)
+    if(id==='oven' && S.ovenStepping){
+      ctx.save();
+      ctx.strokeStyle='#3498db';
+      ctx.lineWidth=3;
+      ctx.globalAlpha=0.5+0.5*Math.abs(Math.sin(S.time*4));
+      ctx.strokeRect(x-2,y-2,w+4,h+4);
+      ctx.restore();
+      // 步進中文字標記
+      ctx.fillStyle='#3498db';ctx.font=`bold ${Math.max(8,ts(10))}px sans-serif`;ctx.textAlign='center';
+      const rem=Math.max(0,S.ovenStepEnd-S.time);
+      ctx.fillText(`步進中 ${rem.toFixed(1)}s`, x+w/2, y+ts(14));
+    }
     if(S.ooMode){ctx.fillStyle='rgba(233,69,96,0.12)';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#e94560';ctx.lineWidth=2.5;ctx.strokeRect(x,y,w,h);}
   } else if(eq.isRack){
     ctx.fillStyle='#080818';ctx.fillRect(x,y,w,h);
@@ -1359,28 +1448,49 @@ function drawStrengtheners(){
 function drawOvenRods(){
   const eq=EQ.oven;
   const x=tx(eq.x),y=ty(eq.y),w=ts(eq.w),h=ts(eq.h);
-  if(!S.ovenQ.length)return;
   const maxR=P.ovenRods; // 烤箱總桿數 (37)
-  const rh=Math.min((h-28)/maxR,ts(6));
+  const rh=Math.min((h-40)/maxR,ts(6));
   const mg=5;
-  S.ovenQ.forEach((rod,i)=>{
-    const bt=S.time-rod.enterTime;
-    const ratio=Math.min(bt/P.bakeOver,1);
-    const rx=x+mg,ry=y+mg+i*(rh+1),rw=w-mg*2;
-    if(ry+rh>y+h-18)return;
-    const ok=P.bakeOk/P.bakeOver;
-    let c;
-    if(ratio<ok)c=lerp('#2ecc71','#f1c40f',ratio/ok);
-    else c=lerp('#f1c40f','#e74c3c',Math.min((ratio-ok)/(1-ok),1));
-    ctx.fillStyle=c;ctx.fillRect(rx,ry,rw,rh);
-    if(ratio>.92&&Math.floor(S.time*2)%2===0){ctx.strokeStyle='#e74c3c';ctx.lineWidth=1.5;ctx.strokeRect(rx,ry,rw,rh);}
-  });
-  ctx.fillStyle='#fff';ctx.font=`bold ${Math.max(7,ts(8))}px sans-serif`;ctx.textAlign='center';
-  ctx.fillText(`${S.ovenQ.length}/${P.ovenRods}桿`,x+w/2,y+h-14);
-  if(S.ovenQ.length>0){
-    const old=(S.time-S.ovenQ[0].enterTime)/60;
+  // 畫全部 37 稈位 (含空稈); 當前 I/O 位置黃色高亮
+  for(let i=0;i<maxR;i++){
+    const rod=S.ovenSlots[i];
+    const rx=x+mg, ry=y+mg+i*(rh+1), rw=w-mg*2;
+    if(ry+rh>y+h-30) break;
+    if(rod){
+      const bt=S.time-rod.enterTime;
+      const ratio=Math.min(bt/P.bakeOver,1);
+      const ok=P.bakeOk/P.bakeOver;
+      let c;
+      if(ratio<ok) c=lerp('#2ecc71','#f1c40f',ratio/ok);
+      else c=lerp('#f1c40f','#e74c3c',Math.min((ratio-ok)/(1-ok),1));
+      ctx.fillStyle=c; ctx.fillRect(rx,ry,rw,rh);
+      if(ratio>.92 && Math.floor(S.time*2)%2===0){
+        ctx.strokeStyle='#e74c3c'; ctx.lineWidth=1.5; ctx.strokeRect(rx,ry,rw,rh);
+      }
+    } else {
+      ctx.fillStyle='#2a2a3a'; ctx.fillRect(rx,ry,rw,rh);
+    }
+    // 當前 I/O 位置: 黃色高亮邊框
+    if(i===S.ovenPos){
+      ctx.strokeStyle=S.ovenStepping?'#3498db':'#f1c40f';
+      ctx.lineWidth=1.5;
+      ctx.strokeRect(rx-1,ry-0.5,rw+2,rh+1);
+    }
+  }
+  // 底部資訊
+  const ovCnt=ovenCount();
+  ctx.fillStyle=S.ovenStepping?'#3498db':'#f1c40f';
+  ctx.font=`bold ${Math.max(8,ts(9))}px sans-serif`; ctx.textAlign='center';
+  const ioLabel=S.ovenStepping
+    ? `I/O:#${S.ovenPos+1}→#${(S.ovenPos+1)%maxR+1}`
+    : `I/O:#${S.ovenPos+1}`;
+  ctx.fillText(ioLabel, x+w/2, y+h-24);
+  ctx.fillStyle='#fff'; ctx.font=`bold ${Math.max(7,ts(8))}px sans-serif`;
+  ctx.fillText(`${ovCnt}/${maxR}桿`, x+w/2, y+h-14);
+  if(ovCnt>0){
+    const old=(S.time-ovenOldestEnterTime())/60;
     ctx.fillStyle=old>P.bakeOver/60?'#e74c3c':old>P.bakeOk/60?'#f1c40f':'#4ecca3';
-    ctx.fillText(`首根時長:${old.toFixed(1)}m`,x+w/2,y+h-4);
+    ctx.fillText(`首根時長:${old.toFixed(1)}m`, x+w/2, y+h-4);
   }
 }
 
@@ -1676,8 +1786,8 @@ function drawArmTransport(){
       {match:'取平台2上→出料位',from:'platform2',to:'conv2',toSide:'load'},
     ],
     armL:[
-      {match:'入料(下層→桿)',from:'platform2',to:'oven'},
-      {match:'出料(桿→上層)',from:'oven',to:'platform2'},
+      {match:'入料(下層→桿',from:'platform2',to:'oven'},
+      {match:'出料(桿',from:'oven',to:'platform2'},
     ],
     armB:[
       {match:'取滑台→放推車',from:'conv2',fromSide:'unload',to:'outputCart'},
@@ -1846,8 +1956,9 @@ function updateStats(){
   document.getElementById('s_oo2').textContent=`佔比:${t>0?(oo/t*100).toFixed(1):0}%`;
   document.getElementById('s_cc').textContent=`入${S.ccIn}/出${S.ccOut}`;
   document.getElementById('s_cc2').textContent=`耗時:${(S.ccTime/60).toFixed(1)}min`;
-  document.getElementById('s_ov').textContent=`${S.ovenQ.length}/${P.ovenRods}桿 (${S.ovenQ.length*P.batch}片)`;
-  if(S.ovenQ.length>0){const old=(S.time-S.ovenQ[0].enterTime)/60;document.getElementById('s_ov2').textContent=`首根時長:${old.toFixed(1)}min`;}
+  const _ovN=ovenCount();
+  document.getElementById('s_ov').textContent=`${_ovN}/${P.ovenRods}桿 (${_ovN*P.batch}片)`;
+  if(_ovN>0){const old=(S.time-ovenOldestEnterTime())/60;document.getElementById('s_ov2').textContent=`首根時長:${old.toFixed(1)}min | I/O:#${S.ovenPos+1}${S.ovenStepping?'(步進中)':''}`;}
 
   // Utilization + 瓶頸分析 (P/B/S/CG/I + Active Period + WIP 滑動)
   const utilList=[];
@@ -2043,11 +2154,12 @@ function updateOvenDetail(){
   const barW=40;
   let html='';
 
-  if(S.ovenQ.length>0){
-    html+=`<div style="color:#4ecca3;font-weight:600;margin-bottom:3px">烤箱內 ${S.ovenQ.length}/${P.ovenRods} 桿</div>`;
+  const _ovList=ovenRodsSortedByAge();
+  if(_ovList.length>0){
+    html+=`<div style="color:#4ecca3;font-weight:600;margin-bottom:3px">烤箱內 ${_ovList.length}/${P.ovenRods} 桿 &nbsp; <span style="color:#f1c40f">I/O:#${S.ovenPos+1}${S.ovenStepping?'(步進中)':''}</span></div>`;
     html+='<table style="width:100%;border-collapse:collapse;font-size:11px">';
-    html+='<tr style="color:#888;border-bottom:1px solid #222"><th style="text-align:left;padding:2px 3px">桿#</th><th>入爐</th><th>入料間隔</th><th>已烘</th><th>狀態</th><th>進度</th></tr>';
-    S.ovenQ.forEach((rod,i)=>{
+    html+='<tr style="color:#888;border-bottom:1px solid #222"><th style="text-align:left;padding:2px 3px">桿#</th><th>稈位</th><th>入爐</th><th>入料間隔</th><th>已烘</th><th>狀態</th><th>進度</th></tr>';
+    _ovList.forEach((rod)=>{
       const bakeS=S.time-rod.enterTime;
       const bakeMin=bakeS/60;
       const gapStr=rod.interval>0?fmtGap(rod.interval):'--';
@@ -2057,8 +2169,10 @@ function updateOvenDetail(){
       else{status='烘烤中';color='#4ecca3';}
       const pct=Math.min(bakeS/P.bakeOver*100,100);
       const barCol=pct>=100?'#e94560':pct>=(bakeOkMin/bakeOverMin*100)?'#f1c40f':'#2ecc71';
+      const posLabel=`#${rod.pos+1}${rod.pos===S.ovenPos?' ←I/O':''}`;
       html+=`<tr style="border-bottom:1px solid #151525;color:${color}">`;
       html+=`<td style="padding:2px 3px">${rod.id}</td>`;
+      html+=`<td style="text-align:center;color:${rod.pos===S.ovenPos?'#f1c40f':'#888'}">${posLabel}</td>`;
       html+=`<td style="text-align:center">${fmtTime(rod.enterTime)}</td>`;
       html+=`<td style="text-align:center;color:#3498db">${gapStr}</td>`;
       html+=`<td style="text-align:center">${bakeMin.toFixed(1)}m</td>`;
@@ -2068,7 +2182,7 @@ function updateOvenDetail(){
     });
     html+='</table>';
   } else {
-    html+='<div style="color:#555">烤箱空</div>';
+    html+=`<div style="color:#555">烤箱空 &nbsp; <span style="color:#f1c40f">I/O:#${S.ovenPos+1}</span></div>`;
   }
 
   if(S.ovenHistory.length>0){
@@ -2225,8 +2339,17 @@ function buildTipHtml(fid){
     });
   }
   if(fid==='oven'){
-    html+=`\n桿數: ${S.ovenQ.length}/${P.ovenRods}`;
-    if(S.ovenQ.length>0) html+=`\n首根時長: ${((S.time-S.ovenQ[0].enterTime)/60).toFixed(1)}min`;
+    const _oc=ovenCount();
+    html+=`\n桿數: ${_oc}/${P.ovenRods}`;
+    html+=`\nI/O 位置: 桿#${S.ovenPos+1}`;
+    if(S.ovenSeekUnload) html+='\n!! 旋轉出料模式 (途中不入料)';
+    if(S.ovenStepping){
+      const rem=Math.max(0,S.ovenStepEnd-S.time);
+      const nextPos=(S.ovenPos+1)%P.ovenRods+1;
+      const tag=S.ovenSeekUnload?'旋轉出料':'步進';
+      html+=`\n!! ${tag}中 ${rem.toFixed(1)}s → #${nextPos} (不可取放)`;
+    }
+    if(_oc>0) html+=`\n首根時長: ${((S.time-ovenOldestEnterTime())/60).toFixed(1)}min`;
     if(S.ooMode) html+='\n!! 只出不進模式';
   }
   if(fid==='inputCart') html+=`\n本車已取: ${S.inCartCnt}/${P.cartPieces}\n下次旋轉: 第${Math.ceil((S.inCartCnt+1)/P.rackRotateN)*P.rackRotateN}片`;
@@ -2282,7 +2405,7 @@ const PARAM_IDS=[
   'p_wash_clean','p_wash_move','p_wash_slots','p_arm1_move','p_plat1_cap',
   'p_rack_cap','p_arm2_to_str','p_arm2_to_pre','p_str_ct','p_str_n','p_pre_ct','p_pre_slots',
   'p_arm3_to_p2','p_arm3_to_out','p_armL_in','p_armL_out','p_batch',
-  'p_ovenRods','p_bakeOk','p_bakeOver','p_conv2_go','p_conv2_back',
+  'p_ovenRods','p_oven_step','p_bakeOk','p_bakeOver','p_conv2_go','p_conv2_back',
   'p_armB_photo','p_armB_pick','p_armB_photo_n',
   'p_cart_out_pieces','p_rack_out_rotate_n','p_rack_out_rotate_time','p_cart_out_time',
   'p_simH','p_extra','p_action_gap','spdS'
@@ -2330,33 +2453,37 @@ function toggleHelp(){
 
 function buildOvenSnapshotHtml(){
   let html='<h2>烤箱桿位明細</h2>';
-  if(S.ovenQ.length>0){
-    html+=`<h3 style="color:#4ecca3;font-size:13px;margin:8px 0 4px">烤箱內 ${S.ovenQ.length}/${P.ovenRods} 桿</h3>`;
-    html+='<table><thead><tr><th>桿#</th><th>入爐時間</th><th>入料間隔</th><th>已烘</th><th>狀態</th></tr></thead><tbody>';
-    S.ovenQ.forEach(rod=>{
+  const _list=ovenRodsSortedByAge();
+  html+=`<p>目前 I/O 位置: <b>桿#${S.ovenPos+1}</b>${S.ovenStepping?' (步進中)':''}${S.ovenSeekUnload?' [旋轉出料模式]':''}</p>`;
+  if(_list.length>0){
+    html+=`<h3 style="color:#4ecca3;font-size:13px;margin:8px 0 4px">烤箱內 ${_list.length}/${P.ovenRods} 桿</h3>`;
+    html+='<table><thead><tr><th>桿#</th><th>稈位</th><th>入爐時間</th><th>入料間隔</th><th>已烘</th><th>狀態</th></tr></thead><tbody>';
+    _list.forEach(rod=>{
       const bakeMin=(S.time-rod.enterTime)/60;
       const gapStr=rod.interval>0?fmtGap(rod.interval):'--';
       const bakeOkMin=P.bakeOk/60,bakeOverMin=P.bakeOver/60;
       let status='烘烤中',color='#4ecca3';
       if(bakeMin>=bakeOverMin){status='過烘!';color='#e94560';}
       else if(bakeMin>=bakeOkMin){status='可出料';color='#f1c40f';}
-      html+=`<tr><td>${rod.id}</td><td>${fmtTime(rod.enterTime)}</td><td class="num" style="color:#3498db">${gapStr}</td><td class="num">${bakeMin.toFixed(1)}m</td><td style="color:${color}">${status}</td></tr>`;
+      const posMark=rod.pos===S.ovenPos?' ←I/O':'';
+      html+=`<tr><td>${rod.id}</td><td>#${rod.pos+1}${posMark}</td><td>${fmtTime(rod.enterTime)}</td><td class="num" style="color:#3498db">${gapStr}</td><td class="num">${bakeMin.toFixed(1)}m</td><td style="color:${color}">${status}</td></tr>`;
     });
     html+='</tbody></table>';
   }
   if(S.ovenHistory.length>0){
     html+=`<h3 style="color:#f39c12;font-size:13px;margin:12px 0 4px">已出爐 (共 ${S.ovenHistory.length} 桿)</h3>`;
-    html+='<table><thead><tr><th>桿#</th><th>入爐</th><th>入料間隔</th><th>烘烤</th><th>出爐</th><th>狀態</th></tr></thead><tbody>';
+    html+='<table><thead><tr><th>桿#</th><th>稈位</th><th>入爐</th><th>入料間隔</th><th>烘烤</th><th>出爐</th><th>狀態</th></tr></thead><tbody>';
     [...S.ovenHistory].reverse().forEach(rod=>{
       const bakeMin=rod.bakeTime/60;
       const gapStr=rod.interval>0?fmtGap(rod.interval):'--';
       const color=rod.overBaked?'#e94560':'';
       const status=rod.overBaked?'過烘':'正常';
-      html+=`<tr${color?' style="color:'+color+'"':''}><td>${rod.id}</td><td>${fmtTime(rod.enterTime)}</td><td class="num" style="color:#3498db">${gapStr}</td><td class="num">${bakeMin.toFixed(1)}m</td><td>${fmtTime(rod.exitTime)}</td><td>${status}</td></tr>`;
+      const posStr=rod.pos!==undefined?`#${rod.pos+1}`:'--';
+      html+=`<tr${color?' style="color:'+color+'"':''}><td>${rod.id}</td><td>${posStr}</td><td>${fmtTime(rod.enterTime)}</td><td class="num" style="color:#3498db">${gapStr}</td><td class="num">${bakeMin.toFixed(1)}m</td><td>${fmtTime(rod.exitTime)}</td><td>${status}</td></tr>`;
     });
     html+='</tbody></table>';
   }
-  if(S.ovenQ.length===0 && S.ovenHistory.length===0) html+='<p style="color:#555">無資料</p>';
+  if(_list.length===0 && S.ovenHistory.length===0) html+='<p style="color:#555">無資料</p>';
   return html;
 }
 
