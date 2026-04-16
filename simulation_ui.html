@@ -78,7 +78,7 @@ body{font-family:'Noto Sans TC','Microsoft JhengHei','Segoe UI',sans-serif;font-
     <h1>產線模擬 - 03/31 強化機花型高空流道</h1>
     <button class="btn-go" id="btnR" onclick="toggle()">&#9654; 開始</button>
     <button class="btn-rs" onclick="reset()">&#8635; 重置</button>
-    <div class="spd"><span>速度:</span><input type="number" id="spdS" min="1" max="9999" value="999" style="width:56px;background:#0a0a23;border:1px solid #0f3460;color:#4ecca3;padding:2px 4px;border-radius:2px;font-size:11px;text-align:right"><span id="spdL">x</span></div>
+    <div class="spd"><span>速度:</span><input type="range" id="spdR" min="0" max="1000" value="1000" style="width:100px;vertical-align:middle;accent-color:#4ecca3"><input type="number" id="spdS" min="1" max="999" value="999" style="width:56px;background:#0a0a23;border:1px solid #0f3460;color:#4ecca3;padding:2px 4px;border-radius:2px;font-size:11px;text-align:right"><span id="spdL">x</span></div>
     <button class="btn-rs" onclick="saveParams()" title="儲存目前參數">💾 存檔</button>
     <button class="btn-rs" onclick="loadParams()" title="載入上次存檔">📂 載入</button>
     <button class="btn-rs" onclick="resetParams()" title="恢復 HTML 預設值">🔄 預設</button>
@@ -132,7 +132,7 @@ body{font-family:'Noto Sans TC','Microsoft JhengHei','Segoe UI',sans-serif;font-
       <div class="pr"><label>取預烘→放轉接平台2</label><input id="p_arm3_to_p2" type="number" value="35"><span class="u">秒</span></div>
       <div class="pr"><label>取轉接平台2→放出料位</label><input id="p_arm3_to_out" type="number" value="35"><span class="u">秒</span></div>
     </div>
-    <div class="pg"><h3>手臂L + 烤箱</h3>
+    <div class="pg"><h3>手臂L + 烤箱 (37稈旋轉步進)</h3>
       <div class="pr"><label>入料(平台2→桿,4片)</label><input id="p_armL_in" type="number" value="120"><span class="u">秒</span></div>
       <div class="pr"><label>出料(桿→平台2,4片)</label><input id="p_armL_out" type="number" value="120"><span class="u">秒</span></div>
       <div class="pr"><label>每桿掛架數</label><input id="p_batch" type="number" value="4"><span class="u">片</span></div>
@@ -1534,6 +1534,9 @@ function drawStrengtheners(){
 function drawOvenRods(){
   const eq=EQ.oven;
   const x=tx(eq.x),y=ty(eq.y),w=ts(eq.w),h=ts(eq.h);
+  // 此版新功能標示 (類似預烘的 Early Release)
+  ctx.fillStyle='#f39c12';ctx.font=`bold ${Math.max(7,ts(7))}px sans-serif`;ctx.textAlign='center';
+  ctx.fillText(`Rotary Step (${P.ovenRods} rods)`, x+w/2, y-ts(3));
   const maxR=P.ovenRods; // 烤箱總桿數 (37)
   const rh=Math.min((h-40)/maxR,ts(6));
   const mg=5;
@@ -2758,8 +2761,22 @@ ${buildOvenSnapshotHtml()}
 // ================================================================
 //  INIT
 // ================================================================
+// 速度滑桿 ↔ 數值欄位 雙向同步 (對數刻度: 1~999)
+function _spdSliderToVal(s){ return Math.max(1, Math.min(999, Math.round(Math.pow(999, s/1000)))); }
+function _spdValToSlider(v){ v=Math.max(1,Math.min(999,v||1)); return Math.round(Math.log(v)/Math.log(999)*1000); }
+function _wireSpeedSync(){
+  const r=document.getElementById('spdR');
+  const s=document.getElementById('spdS');
+  if(!r||!s)return;
+  r.addEventListener('input',()=>{ s.value=_spdSliderToVal(+r.value); });
+  s.addEventListener('input',()=>{ r.value=_spdValToSlider(+s.value); });
+  // 初始同步: 以 spdS 數值為準, 校正 slider
+  r.value=_spdValToSlider(+s.value);
+}
+
 window.addEventListener('load',()=>{
   initCanvas();readP();initSim();draw();updateStats();drawTimeline();setupTip();
+  _wireSpeedSync();
   // 參數欄位變動時立即重新讀取,讓調整即時生效 (模擬執行中下一個動作會套用新值)
   PARAM_IDS.forEach(id=>{
     const el=document.getElementById(id);
