@@ -531,6 +531,14 @@ function armBusy(id){ return S.arms[id].state!=='idle'; }
 function ovenCount(){ let n=0; for(const s of S.ovenSlots) if(s) n++; return n; }
 function ovenHasAny(){ return S.ovenSlots.some(s=>s!==null); }
 function ovenAnyReady(){ return S.ovenSlots.some(s=>s && (S.time-s.enterTime)>=P.bakeOk); }
+function ovenOldestIdx(){
+  let min=Infinity, idx=-1;
+  for(let i=0;i<S.ovenSlots.length;i++){
+    const s=S.ovenSlots[i];
+    if(s && s.enterTime<min){ min=s.enterTime; idx=i; }
+  }
+  return idx;
+}
 function ovenOldestEnterTime(){
   let min=Infinity;
   for(const s of S.ovenSlots) if(s && s.enterTime<min) min=s.enterTime;
@@ -1151,7 +1159,12 @@ function simStep(dt){
     const needUnload=(anyReady||S.ooMode) && hasRod;
     const canUnload=B.plat2Upper===0;
     const canLoad=B.plat2Lower>=P.batch && !S.ooMode;
-    const curReady=cur && ((S.time-cur.enterTime)>=P.bakeOk || S.ooMode);
+    // ooMode 下: 只有「最老稈」才算可出料目標 (其他位置即使有料也不出, 維持 FIFO)
+    // 一般模式: 烘烤時間達標即可出料
+    const oldestIdx=S.ooMode?ovenOldestIdx():-1;
+    const curReady=cur && (S.ooMode
+      ? (S.ovenPos===oldestIdx)
+      : (S.time-cur.enterTime)>=P.bakeOk);
 
     // 保險: 若條件已不需出料, 清除 seek 旗標
     if(S.ovenSeekUnload && !needUnload) S.ovenSeekUnload=false;
@@ -1195,7 +1208,12 @@ function simStep(dt){
         if(curReady) doUnload();
         else { S.ovenStepping=true; S.ovenStepEnd=S.time+P.ovenStep; }
       }
-      // 上層滿: 暫停 seek (idle) 等上層清空
+      else if(S.ooMode && oldestIdx>=0 && S.ovenPos!==oldestIdx){
+        // ooMode + 上層滿: 預先步進到最老稈位置 (省下等上層清的時間)
+        // 已到最老稈 → idle 等上層清, 不步過
+        S.ovenStepping=true; S.ovenStepEnd=S.time+P.ovenStep;
+      }
+      // 一般模式 + 上層滿: 暫停 seek (idle)
     }
     // 出料優先 (尚未進 seek): 需出料 + 上層空
     else if(needUnload && canUnload){
@@ -1207,6 +1225,12 @@ function simStep(dt){
         S.ovenStepping=true;
         S.ovenStepEnd=S.time+P.ovenStep;
       }
+    }
+    // ooMode + 上層滿 (尚未進 seek): 預先步進到最老稈
+    else if(needUnload && S.ooMode && oldestIdx>=0 && S.ovenPos!==oldestIdx){
+      S.ovenSeekUnload=true;
+      S.ovenStepping=true;
+      S.ovenStepEnd=S.time+P.ovenStep;
     }
     // 無出料需求 (或上層未空) → 入料 (當前位空 + 下層滿 + 非只出不進)
     else if(!S.ooMode && cur===null && canLoad){
