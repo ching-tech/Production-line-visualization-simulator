@@ -1537,14 +1537,15 @@ function drawOvenRods(){
   // 此版新功能標示 (類似預烘的 Early Release)
   ctx.fillStyle='#f39c12';ctx.font=`bold ${Math.max(7,ts(7))}px sans-serif`;ctx.textAlign='center';
   ctx.fillText(`Rotary Step (${P.ovenRods} rods)`, x+w/2, y-ts(3));
-  const maxR=P.ovenRods; // 烤箱總桿數 (37)
-  const rh=Math.min((h-40)/maxR,ts(6));
+  const maxR=P.ovenRods; // 烤箱總桿數
   const mg=5;
-  // 畫全部 37 稈位 (含空稈); 當前 I/O 位置黃色高亮
+  const usableH=h-mg-30; // 5 上邊距, 30 底部留給 I/O 文字
+  // 行高 = 桿高 + 1px 間隔 (含間隔分配, 確保所有桿能容納)
+  const rowH=Math.min(usableH/maxR, ts(7));
+  const rh=Math.max(1, rowH-1);
   for(let i=0;i<maxR;i++){
     const rod=S.ovenSlots[i];
-    const rx=x+mg, ry=y+mg+i*(rh+1), rw=w-mg*2;
-    if(ry+rh>y+h-30) break;
+    const rx=x+mg, ry=y+mg+i*rowH, rw=w-mg*2;
     if(rod){
       const bt=S.time-rod.enterTime;
       const ratio=Math.min(bt/P.bakeOver,1);
