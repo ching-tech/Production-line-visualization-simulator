@@ -1329,7 +1329,7 @@ const EQ={
   armB:       {x:725,y:20,  w:32, h:32,  label:'手臂B', isArm:true},
   outputCart:  {x:790,y:10,  w:70, h:105, label:'出料\n貨架', isRack:true},
   // === UPPER LEFT: 烤箱 room ===
-  oven:       {x:25, y:60,  w:130,h:185, label:'烤箱',  isOven:true},
+  oven:       {x:25, y:40,  w:130,h:270, label:'烤箱',  isOven:true},
   // === 手臂L → 轉接平台2(直立) → 手臂3 ===
   armL:       {x:168,y:130, w:34, h:34,  label:'手臂L', isArm:true},
   platform2:  {x:215,y:100, w:35, h:85,  label:'轉接\n平台2'},
@@ -1408,7 +1408,7 @@ function draw(){
   ctx.strokeRect(tx(15),ty(5),ts(930),ts(470));
   // Oven room walls (upper left enclosure)
   ctx.strokeStyle='#3a3a5a';ctx.lineWidth=1;
-  ctx.strokeRect(tx(18),ty(50),ts(145),ts(205));
+  ctx.strokeRect(tx(18),ty(30),ts(145),ts(290));
 
   // Flow arrows with arrowheads
   FLOW.forEach(([f,t])=>{
@@ -1478,10 +1478,7 @@ function drawEq(id,eq){
       ctx.globalAlpha=0.5+0.5*Math.abs(Math.sin(S.time*4));
       ctx.strokeRect(x-2,y-2,w+4,h+4);
       ctx.restore();
-      // 步進中文字標記
-      ctx.fillStyle='#3498db';ctx.font=`bold ${Math.max(8,ts(10))}px sans-serif`;ctx.textAlign='center';
-      const rem=Math.max(0,S.ovenStepEnd-S.time);
-      ctx.fillText(`步進中 ${rem.toFixed(1)}s`, x+w/2, y+ts(14));
+      // 步進文字改在 drawOvenRods 內 (取代標題位置), 不再覆蓋 box 內桿位
     }
     if(S.ooMode){ctx.fillStyle='rgba(233,69,96,0.12)';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#e94560';ctx.lineWidth=2.5;ctx.strokeRect(x,y,w,h);}
   } else if(eq.isRack){
@@ -1534,9 +1531,17 @@ function drawStrengtheners(){
 function drawOvenRods(){
   const eq=EQ.oven;
   const x=tx(eq.x),y=ty(eq.y),w=ts(eq.w),h=ts(eq.h);
-  // 此版新功能標示 (類似預烘的 Early Release)
-  ctx.fillStyle='#f39c12';ctx.font=`bold ${Math.max(7,ts(7))}px sans-serif`;ctx.textAlign='center';
-  ctx.fillText(`Rotary Step (${P.ovenRods} rods)`, x+w/2, y-ts(3));
+  // 此版新功能標示 / 步進倒數 (類似預烘的 Early Release; 在 box 外, 不擋桿位)
+  ctx.font=`bold ${Math.max(8,ts(8))}px sans-serif`;ctx.textAlign='center';
+  if(S.ovenStepping){
+    const rem=Math.max(0,S.ovenStepEnd-S.time);
+    const nextPos=(S.ovenPos+1)%P.ovenRods+1;
+    ctx.fillStyle='#3498db';
+    ctx.fillText(`步進中 ${rem.toFixed(1)}s → #${nextPos}`, x+w/2, y-ts(3));
+  } else {
+    ctx.fillStyle='#f39c12';
+    ctx.fillText(`Rotary Step (${P.ovenRods} rods)`, x+w/2, y-ts(3));
+  }
   const maxR=P.ovenRods; // 烤箱總桿數
   const mg=5;
   const usableH=h-mg-30; // 5 上邊距, 30 底部留給 I/O 文字
