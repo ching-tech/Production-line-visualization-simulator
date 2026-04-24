@@ -574,6 +574,10 @@ function simStep(dt){
     if(arm.state==='idle') continue;
     arm.timer-=dt;
     S.stations[id].timer=Math.max(0,arm.timer);
+    if(arm.state==='cartchange'){
+      if(id==='armA') S.stations.inputCart.timer=Math.max(0,arm.timer);
+      else if(id==='armB') S.stations.outputCart.timer=Math.max(0,arm.timer);
+    }
     if(arm.timer<=0){
       if(arm.state==='cartchange'){
         arm.state='idle';arm.action='';setSt(id,'idle','');
