@@ -2263,6 +2263,16 @@ function updateOvenDetail(){
   el.innerHTML=html;
 }
 
+// 強化→預烘 等候時間 → 顏色 (6 段)
+function strWaitColor(s){
+  if(s<50)  return '#4ecca3'; // 綠
+  if(s<100) return '#7ed957'; // 黃綠
+  if(s<150) return '#f1c40f'; // 黃
+  if(s<200) return '#ff8c00'; // 橙
+  if(s<250) return '#e94560'; // 紅
+  return '#c026d3';           // 紫紅 (≥250)
+}
+
 function updateStrHistory(){
   const el=document.getElementById('strHistList');
   if(!el)return;
@@ -2279,6 +2289,15 @@ function updateStrHistory(){
   } else {
     html+=`<div style="color:#555;margin-bottom:3px">尚無歷史紀錄</div>`;
   }
+  // 色標 legend
+  html+=`<div style="margin:3px 0 6px;font-size:10px;color:#888;display:flex;flex-wrap:wrap;gap:4px">`+
+    `<span style="color:#4ecca3;font-weight:600">&lt;50</span>`+
+    `<span style="color:#7ed957;font-weight:600">50-100</span>`+
+    `<span style="color:#f1c40f;font-weight:600">100-150</span>`+
+    `<span style="color:#ff8c00;font-weight:600">150-200</span>`+
+    `<span style="color:#e94560;font-weight:600">200-250</span>`+
+    `<span style="color:#c026d3;font-weight:600">≥250</span>`+
+    `</div>`;
   // 在製中 (強化機完成待取 + 預烘機內)
   if(inStr.length>0||inPre.length>0){
     html+=`<div style="color:#f39c12;font-weight:600;margin:6px 0 3px">在製中</div>`;
@@ -2288,7 +2307,7 @@ function updateStrHistory(){
       const p=o.m.piece;
       const wait=p.strDoneTime?(S.time-p.strDoneTime):0;
       const pos=o.m.done?`強化#${o.idx+1} 待取`:`強化#${o.idx+1} 中`;
-      html+=`<tr style="border-bottom:1px solid #111;color:#ddd"><td style="padding:2px 3px">P${p.id}</td><td style="text-align:center;color:#888">${pos}</td><td style="text-align:center">${p.strDoneTime?fmtTime(p.strDoneTime):'--'}</td><td style="text-align:center;color:${wait>30?'#e94560':wait>10?'#f1c40f':'#4ecca3'}">${p.strDoneTime?wait.toFixed(1)+'s':'--'}</td></tr>`;
+      html+=`<tr style="border-bottom:1px solid #111;color:#ddd"><td style="padding:2px 3px">P${p.id}</td><td style="text-align:center;color:#888">${pos}</td><td style="text-align:center">${p.strDoneTime?fmtTime(p.strDoneTime):'--'}</td><td style="text-align:center;font-weight:600;color:${strWaitColor(wait)}">${p.strDoneTime?wait.toFixed(1)+'s':'--'}</td></tr>`;
     });
     inPre.forEach(o=>{
       const p=o.p;
@@ -2303,8 +2322,8 @@ function updateStrHistory(){
     html+='<table style="width:100%;border-collapse:collapse;font-size:11px">';
     html+='<tr style="color:#888;border-bottom:1px solid #222"><th style="text-align:left;padding:2px 3px">架#</th><th>強化完成</th><th>放入預烘</th><th>等候</th></tr>';
     [...S.strHistory].reverse().forEach(h=>{
-      const c=h.waitDur>30?'#e94560':h.waitDur>10?'#f1c40f':'#4ecca3';
-      html+=`<tr style="border-bottom:1px solid #111;color:#999"><td style="padding:2px 3px">P${h.id}</td><td style="text-align:center">${fmtTime(h.strDoneTime)}</td><td style="text-align:center">${fmtTime(h.placedTime)}</td><td style="text-align:center;color:${c}">${h.waitDur.toFixed(1)}s</td></tr>`;
+      const c=strWaitColor(h.waitDur);
+      html+=`<tr style="border-bottom:1px solid #111;color:#999"><td style="padding:2px 3px">P${h.id}</td><td style="text-align:center">${fmtTime(h.strDoneTime)}</td><td style="text-align:center">${fmtTime(h.placedTime)}</td><td style="text-align:center;font-weight:600;color:${c}">${h.waitDur.toFixed(1)}s</td></tr>`;
     });
     html+='</table>';
   }
@@ -2564,6 +2583,14 @@ function toggleHelp(){
 
 function buildStrHistorySnapshotHtml(){
   let html='<h2>強化→預烘 等候歷史</h2>';
+  // 色標 legend
+  html+=`<p style="font-size:11px;color:#999">色標: `+
+    `<b style="color:#4ecca3">&lt;50s</b> &nbsp; `+
+    `<b style="color:#7ed957">50-100s</b> &nbsp; `+
+    `<b style="color:#f1c40f">100-150s</b> &nbsp; `+
+    `<b style="color:#ff8c00">150-200s</b> &nbsp; `+
+    `<b style="color:#e94560">200-250s</b> &nbsp; `+
+    `<b style="color:#c026d3">≥250s</b></p>`;
   const inStr=S.mach.str.map((s,i)=>({m:s,idx:i})).filter(o=>o.m.has&&o.m.piece);
   const inPre=(S.mach.prebake.slots||[]).map((p,i)=>({p,i})).filter(o=>o.p&&o.p.id);
   if(S.strHistory.length>0){
@@ -2579,8 +2606,8 @@ function buildStrHistorySnapshotHtml(){
       const p=o.m.piece;
       const wait=p.strDoneTime?(S.time-p.strDoneTime):0;
       const pos=o.m.done?`強化#${o.idx+1} 待取`:`強化#${o.idx+1} 中`;
-      const c=wait>30?'#e94560':wait>10?'#f1c40f':'#4ecca3';
-      html+=`<tr><td>P${p.id}</td><td>${pos}</td><td>${p.strDoneTime?fmtTime(p.strDoneTime):'--'}</td><td class="num" style="color:${c}">${p.strDoneTime?wait.toFixed(1)+'s':'--'}</td></tr>`;
+      const c=strWaitColor(wait);
+      html+=`<tr><td>P${p.id}</td><td>${pos}</td><td>${p.strDoneTime?fmtTime(p.strDoneTime):'--'}</td><td class="num" style="font-weight:600;color:${c}">${p.strDoneTime?wait.toFixed(1)+'s':'--'}</td></tr>`;
     });
     inPre.forEach(o=>{
       const p=o.p;
@@ -2593,8 +2620,8 @@ function buildStrHistorySnapshotHtml(){
     html+=`<h3 style="color:#e94560;font-size:13px;margin:12px 0 4px">歷史 (新→舊, 共 ${S.strHistory.length} 筆)</h3>`;
     html+='<table><thead><tr><th>架#</th><th>強化完成</th><th>放入預烘</th><th>等候</th></tr></thead><tbody>';
     [...S.strHistory].reverse().forEach(h=>{
-      const c=h.waitDur>30?'#e94560':h.waitDur>10?'#f1c40f':'#4ecca3';
-      html+=`<tr><td>P${h.id}</td><td>${fmtTime(h.strDoneTime)}</td><td>${fmtTime(h.placedTime)}</td><td class="num" style="color:${c}">${h.waitDur.toFixed(1)}s</td></tr>`;
+      const c=strWaitColor(h.waitDur);
+      html+=`<tr><td>P${h.id}</td><td>${fmtTime(h.strDoneTime)}</td><td>${fmtTime(h.placedTime)}</td><td class="num" style="font-weight:600;color:${c}">${h.waitDur.toFixed(1)}s</td></tr>`;
     });
     html+='</tbody></table>';
   }
