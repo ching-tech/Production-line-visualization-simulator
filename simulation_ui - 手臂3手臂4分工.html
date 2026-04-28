@@ -2562,6 +2562,46 @@ function toggleHelp(){
   m.style.display=m.style.display==='none'?'block':'none';
 }
 
+function buildStrHistorySnapshotHtml(){
+  let html='<h2>強化→預烘 等候歷史</h2>';
+  const inStr=S.mach.str.map((s,i)=>({m:s,idx:i})).filter(o=>o.m.has&&o.m.piece);
+  const inPre=(S.mach.prebake.slots||[]).map((p,i)=>({p,i})).filter(o=>o.p&&o.p.id);
+  if(S.strHistory.length>0){
+    let sum=0,mx=0,mn=Infinity;
+    S.strHistory.forEach(h=>{sum+=h.waitDur;if(h.waitDur>mx)mx=h.waitDur;if(h.waitDur<mn)mn=h.waitDur;});
+    const avg=sum/S.strHistory.length;
+    html+=`<p>已記錄 <b>${S.strHistory.length}</b> 架 &nbsp; avg <b style="color:#f1c40f">${avg.toFixed(1)}s</b> &nbsp; min <b>${mn.toFixed(1)}s</b> / max <b>${mx.toFixed(1)}s</b></p>`;
+  }
+  if(inStr.length>0||inPre.length>0){
+    html+=`<h3 style="color:#f39c12;font-size:13px;margin:8px 0 4px">在製中</h3>`;
+    html+='<table><thead><tr><th>架#</th><th>位置</th><th>強化完成</th><th>已等</th></tr></thead><tbody>';
+    inStr.forEach(o=>{
+      const p=o.m.piece;
+      const wait=p.strDoneTime?(S.time-p.strDoneTime):0;
+      const pos=o.m.done?`強化#${o.idx+1} 待取`:`強化#${o.idx+1} 中`;
+      const c=wait>30?'#e94560':wait>10?'#f1c40f':'#4ecca3';
+      html+=`<tr><td>P${p.id}</td><td>${pos}</td><td>${p.strDoneTime?fmtTime(p.strDoneTime):'--'}</td><td class="num" style="color:${c}">${p.strDoneTime?wait.toFixed(1)+'s':'--'}</td></tr>`;
+    });
+    inPre.forEach(o=>{
+      const p=o.p;
+      const wait=p.waitDur||0;
+      html+=`<tr><td>P${p.id}</td><td>預烘 格${o.i+1}</td><td>${p.strDoneTime?fmtTime(p.strDoneTime):'--'}</td><td class="num">${wait.toFixed(1)}s ✓</td></tr>`;
+    });
+    html+='</tbody></table>';
+  }
+  if(S.strHistory.length>0){
+    html+=`<h3 style="color:#e94560;font-size:13px;margin:12px 0 4px">歷史 (新→舊, 共 ${S.strHistory.length} 筆)</h3>`;
+    html+='<table><thead><tr><th>架#</th><th>強化完成</th><th>放入預烘</th><th>等候</th></tr></thead><tbody>';
+    [...S.strHistory].reverse().forEach(h=>{
+      const c=h.waitDur>30?'#e94560':h.waitDur>10?'#f1c40f':'#4ecca3';
+      html+=`<tr><td>P${h.id}</td><td>${fmtTime(h.strDoneTime)}</td><td>${fmtTime(h.placedTime)}</td><td class="num" style="color:${c}">${h.waitDur.toFixed(1)}s</td></tr>`;
+    });
+    html+='</tbody></table>';
+  }
+  if(S.strHistory.length===0 && inStr.length===0 && inPre.length===0) html+='<p style="color:#555">無資料</p>';
+  return html;
+}
+
 function buildOvenSnapshotHtml(){
   let html='<h2>烤箱桿位明細</h2>';
   const _list=ovenRodsSortedByAge();
@@ -2709,6 +2749,8 @@ img{max-width:100%;border:1px solid #0f3460;background:#0a0a23;display:block;mar
 </div>
 
 ${buildOvenSnapshotHtml()}
+
+${buildStrHistorySnapshotHtml()}
 
 </body></html>`;
   const blob=new Blob([html],{type:'text/html;charset=utf-8'});
