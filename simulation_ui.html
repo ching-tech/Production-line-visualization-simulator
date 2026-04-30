@@ -123,6 +123,8 @@ body{font-family:'Noto Sans TC','Microsoft JhengHei','Segoe UI',sans-serif;font-
     <div class="pg"><h3>強化機</h3>
       <div class="pr"><label>強化CT (每台1片)</label><input id="p_str_ct" type="number" value="120"><span class="u">秒</span></div>
       <div class="pr"><label>台數</label><input id="p_str_n" type="number" value="4"><span class="u">台</span></div>
+      <div class="pr"><label>投料錯開 (避免同時完成)</label><input id="p_str_stagger" type="checkbox" checked><span class="u">on</span></div>
+      <div class="pr"><label>錯開最小間隔 (預設 strCT/N)</label><input id="p_str_stagger_gap" type="number" value="0"><span class="u">秒(0=自動)</span></div>
     </div>
     <div class="pg"><h3>預烘機 (步進式 · Early Release)</h3>
       <div class="pr"><label>步進移動時間(每步)</label><input id="p_pre_ct" type="number" value="10"><span class="u">秒</span></div>
@@ -291,6 +293,8 @@ function readP(){
     get arm2Total(){ return this.arm2ToStr+this.arm2ToPre; },
     // Strengthener (處理時間,不加間隔)
     strCT:g('p_str_ct'), strN:g('p_str_n'),  // 每台1片, CT=strCT
+    strStagger:document.getElementById('p_str_stagger')?.checked!==false,
+    strStaggerGap:g('p_str_stagger_gap'),
     // Pre-bake (步進式: preCT = 每步移動時間, 機台內部動作不加 GAP)
     preCT:g('p_pre_ct'), preSlots:g('p_pre_slots'),
     // Arm 3
@@ -508,6 +512,7 @@ function initSim(){
   S.ovenHistory=[];       // 已出爐的桿紀錄 [{id,pos,enterTime,exitTime,bakeTime,interval,overBaked}]
   S.strHistory=[];        // 強化→預烘 等候紀錄 (全部紀錄, 不設上限) [{id,strDoneTime,placedTime,waitDur}]
   S.pieceId=0;            // 掛架 ID 流水號
+  S.lastStrLoadTime=-Infinity; // 強化機最後一次投料時間 (用於錯開)
   S.lastRodEnterTime=0;   // 上一根桿入爐時間 (用來算入料間隔)
   S.totalIn=0;S.totalOut=0;
   S.inCartCnt=0;S.outCartCnt=0;
@@ -1104,15 +1109,21 @@ function simStep(dt){
       };
     } else if(B.plat1>0){
       const freeStr=M.str.find(s=>!s.has);
-      if(freeStr){
+      // 錯開: 若上次投料距今 < 最小間隔, 暫不投料 (避免4台同時完成)
+      const staggerGap = P.strStaggerGap>0 ? P.strStaggerGap : (P.strN>0?P.strCT/P.strN:0);
+      const needWaitStagger = P.strStagger && (S.time - S.lastStrLoadTime < staggerGap);
+      if(freeStr && !needWaitStagger){
         armStart('arm2',[{action:'取平台1→強化',duration:P.arm2ToStr}]);
-        S.arms.arm2._onComplete=()=>{B.plat1--;freeStr.has=true;freeStr.timer=P.strCT;freeStr.piece={id:++S.pieceId,strInTime:S.time};S.pieceCnt.arm2_in++;S.pieceCnt.strengthen++;};
+        S.arms.arm2._onComplete=()=>{B.plat1--;freeStr.has=true;freeStr.timer=P.strCT;freeStr.piece={id:++S.pieceId,strInTime:S.time};S.pieceCnt.arm2_in++;S.pieceCnt.strengthen++;S.lastStrLoadTime=S.time;};
       }
     }
     // 顯示等待原因
     if(!armBusy('arm2')){
+      const staggerGap = P.strStaggerGap>0 ? P.strStaggerGap : (P.strN>0?P.strCT/P.strN:0);
+      const needWaitStagger = P.strStagger && (S.time - S.lastStrLoadTime < staggerGap);
       if(doneStr && !preCanIn) setSt('arm2','idle','等待預烘機入口');
       else if(B.plat1>0 && !M.str.find(s=>!s.has)) setSt('arm2','idle','強化機全滿');
+      else if(B.plat1>0 && needWaitStagger) setSt('arm2','idle',`投料錯開中 ${(staggerGap-(S.time-S.lastStrLoadTime)).toFixed(0)}s`);
       else if(!doneStr && B.plat1===0) setSt('arm2','idle','等待物料');
     }
   }
@@ -2650,7 +2661,7 @@ const PARAM_IDS=[
   'p_armA_photo','p_armA_pick','p_armA_photo_n',
   'p_conv1_go','p_conv1_back','p_armO_to_wash','p_armO_to_rack',
   'p_wash_clean','p_wash_move','p_wash_slots','p_arm1_move','p_plat1_cap',
-  'p_rack_cap','p_arm2_to_str','p_arm2_to_pre','p_str_ct','p_str_n','p_pre_ct','p_pre_slots',
+  'p_rack_cap','p_arm2_to_str','p_arm2_to_pre','p_str_ct','p_str_n','p_str_stagger_gap','p_pre_ct','p_pre_slots',
   'p_arm3_to_p2','p_arm3_to_out','p_armL_in','p_armL_out','p_batch',
   'p_ovenRods','p_oven_step','p_bakeOk','p_bakeOver','p_conv2_go','p_conv2_back',
   'p_armB_photo','p_armB_pick','p_armB_photo_n',
