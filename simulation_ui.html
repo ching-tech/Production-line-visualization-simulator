@@ -127,7 +127,7 @@ body{font-family:'Noto Sans TC','Microsoft JhengHei','Segoe UI',sans-serif;font-
       <div class="pr"><label>錯開最小間隔</label><input id="p_str_stagger_gap" type="number" value="60"><span class="u">秒</span></div>
       <div class="pr"><label>WIP 上限 (強化↔預烘)</label><input id="p_str_wip_cap" type="number" value="2"><span class="u">片(0=不限)</span></div>
       <div class="pr"><label>預判等待 (強化將完成不投料)</label><input id="p_str_wait_almost_done" type="checkbox" checked><span class="u">on</span></div>
-      <div class="pr"><label>事件模式 (用條件代替 staggerGap)</label><input id="p_str_event_mode" type="checkbox"><span class="u">on=不看時間, 看預烘空間</span></div>
+      <div class="pr"><label>事件模式 (用條件代替 staggerGap)</label><input id="p_str_event_mode" type="checkbox"><span class="u">on=不看時間, 看 token</span></div>
     </div>
     <div class="pg"><h3>預烘機 (步進式 · Early Release)</h3>
       <div class="pr"><label>步進移動時間(每步)</label><input id="p_pre_ct" type="number" value="10"><span class="u">秒</span></div>
@@ -552,6 +552,7 @@ function initSim(){
   S.strHistory=[];        // 強化→預烘 等候紀錄 (全部紀錄, 不設上限) [{id,strDoneTime,placedTime,waitDur}]
   S.pieceId=0;            // 掛架 ID 流水號
   S.lastStrLoadTime=-Infinity; // 強化機最後一次投料時間 (用於錯開)
+  S.strLoadTokens=P.strN; // 事件模式 token bucket — 初始=strN, 預烘 step 加 1, 投料減 1
   S.lastRodEnterTime=0;   // 上一根桿入爐時間 (用來算入料間隔)
   S.totalIn=0;S.totalOut=0;
   S.inCartCnt=0;S.outCartCnt=0;
@@ -761,6 +762,8 @@ function simStep(dt){
         for(let i=last;i>0;i--) pre.slots[i]=pre.slots[i-1];
         pre.slots[0]=null;
         pre.phase='ready';
+        // 事件模式 token bucket: 預烘 step 成功 → 投料 token+1 (上限 strN)
+        S.strLoadTokens=Math.min((S.strLoadTokens||0)+1, P.strN);
         // 紀錄步進時間戳 (rate-based P% 用)
         if(!pre.stepTimes) pre.stepTimes=[];
         pre.stepTimes.push(S.time);
@@ -1184,12 +1187,11 @@ function simStep(dt){
       // 預判: 有強化機剩餘 < arm2ToStr + preCT (含已完成等取的, 視同剩 0) → 不投料
       const minRemain = M.str.filter(s=>s.has).reduce((m,s)=>Math.min(m, s.done?0:s.timer),Infinity);
       const strAlmostDone = P.strWaitAlmostDone && minRemain < (P.arm2ToStr + P.preCT);
-      // 事件模式: 預烘 pipeline 至少有 1 格空, 否則不投料 (現場式 interlock)
-      const preHasSpace = M.prebake.slots.some(s=>s===null);
-      const preFullBlock = P.strEventMode && !preHasSpace;
-      if(freeStr && !needWaitStagger && !wipBlocked && !strAlmostDone && !preFullBlock){
+      // 事件模式 (token bucket): 投料消耗 1 token, 預烘 step 補充 1 token (Kanban)
+      const tokenBlock = P.strEventMode && (S.strLoadTokens||0) <= 0;
+      if(freeStr && !needWaitStagger && !wipBlocked && !strAlmostDone && !tokenBlock){
         armStart('arm2',[{action:'取平台1→強化',duration:P.arm2ToStr}]);
-        S.arms.arm2._onComplete=()=>{B.plat1--;freeStr.has=true;freeStr.timer=P.strCT;freeStr.piece={id:++S.pieceId,strInTime:S.time};S.pieceCnt.arm2_in++;S.pieceCnt.strengthen++;S.lastStrLoadTime=S.time;};
+        S.arms.arm2._onComplete=()=>{B.plat1--;freeStr.has=true;freeStr.timer=P.strCT;freeStr.piece={id:++S.pieceId,strInTime:S.time};S.pieceCnt.arm2_in++;S.pieceCnt.strengthen++;S.lastStrLoadTime=S.time;S.strLoadTokens=Math.max(0,(S.strLoadTokens||0)-1);};
       }
     }
     // 顯示等待原因
@@ -1200,12 +1202,11 @@ function simStep(dt){
       const wipBlocked = P.strWipCap>0 && wipNow>=P.strWipCap;
       const minRemain = M.str.filter(s=>s.has).reduce((m,s)=>Math.min(m, s.done?0:s.timer),Infinity);
       const strAlmostDone = P.strWaitAlmostDone && minRemain < (P.arm2ToStr + P.preCT);
-      const preHasSpace = M.prebake.slots.some(s=>s===null);
-      const preFullBlock = P.strEventMode && !preHasSpace;
+      const tokenBlock = P.strEventMode && (S.strLoadTokens||0) <= 0;
       if(doneStr && !preCanIn) setSt('arm2','idle','等待預烘機入口');
       else if(B.plat1>0 && !M.str.find(s=>!s.has)) setSt('arm2','idle','強化機全滿');
       else if(B.plat1>0 && wipBlocked) setSt('arm2','idle',`WIP上限阻擋 ${wipNow}/${P.strWipCap}`);
-      else if(B.plat1>0 && preFullBlock) setSt('arm2','idle','事件: 預烘無空位');
+      else if(B.plat1>0 && tokenBlock) setSt('arm2','idle',`事件: 等預烘 step (token ${S.strLoadTokens||0}/${P.strN})`);
       else if(B.plat1>0 && strAlmostDone) setSt('arm2','idle',`預判等待強化完成 ${minRemain.toFixed(0)}s`);
       else if(B.plat1>0 && needWaitStagger) setSt('arm2','idle',`投料錯開中 ${(staggerGap-(S.time-S.lastStrLoadTime)).toFixed(0)}s`);
       else if(!doneStr && B.plat1===0) setSt('arm2','idle','等待物料');
