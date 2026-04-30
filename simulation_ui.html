@@ -131,7 +131,6 @@ body{font-family:'Noto Sans TC','Microsoft JhengHei','Segoe UI',sans-serif;font-
     <div class="pg"><h3>預烘機 (步進式 · Early Release)</h3>
       <div class="pr"><label>步進移動時間(每步)</label><input id="p_pre_ct" type="number" value="10"><span class="u">秒</span></div>
       <div class="pr"><label>格數</label><input id="p_pre_slots" type="number" value="4"><span class="u">格</span></div>
-      <div class="pr"><label>異常停機 (測試用)</label><input id="p_pre_halt" type="checkbox"><span class="u">on=停止步進</span></div>
     </div>
     <div class="pg"><h3>手臂3</h3>
       <div class="pr"><label>取預烘→放轉接平台2</label><input id="p_arm3_to_p2" type="number" value="35"><span class="u">秒</span></div>
@@ -158,6 +157,23 @@ body{font-family:'Noto Sans TC','Microsoft JhengHei','Segoe UI',sans-serif;font-
       <div class="pr"><label>旋轉每N片</label><input id="p_rack_out_rotate_n" type="number" value="16"><span class="u">片</span></div>
       <div class="pr"><label>旋轉時間</label><input id="p_rack_out_rotate_time" type="number" value="30"><span class="u">秒</span></div>
       <div class="pr"><label>換車時間(阻塞手臂B)</label><input id="p_cart_out_time" type="number" value="60"><span class="u">秒</span></div>
+    </div>
+    <div class="pg"><h3>異常停機 (測試用)</h3>
+      <div class="pr"><label>入料貨架</label><input id="p_halt_cart_in" type="checkbox"><span class="u">on=停止換車</span></div>
+      <div class="pr"><label>手臂A</label><input id="p_halt_armA" type="checkbox"><span class="u">on</span></div>
+      <div class="pr"><label>高空滑台1</label><input id="p_halt_conv1" type="checkbox"><span class="u">on</span></div>
+      <div class="pr"><label>手臂O</label><input id="p_halt_armO" type="checkbox"><span class="u">on</span></div>
+      <div class="pr"><label>清洗機</label><input id="p_halt_washer" type="checkbox"><span class="u">on</span></div>
+      <div class="pr"><label>手臂1</label><input id="p_halt_arm1" type="checkbox"><span class="u">on</span></div>
+      <div class="pr"><label>手臂2</label><input id="p_halt_arm2" type="checkbox"><span class="u">on</span></div>
+      <div class="pr"><label>強化機</label><input id="p_halt_str" type="checkbox"><span class="u">on</span></div>
+      <div class="pr"><label>預烘機</label><input id="p_halt_pre" type="checkbox"><span class="u">on</span></div>
+      <div class="pr"><label>手臂3</label><input id="p_halt_arm3" type="checkbox"><span class="u">on</span></div>
+      <div class="pr"><label>手臂L</label><input id="p_halt_armL" type="checkbox"><span class="u">on</span></div>
+      <div class="pr"><label>烤箱</label><input id="p_halt_oven" type="checkbox"><span class="u">on</span></div>
+      <div class="pr"><label>手臂B</label><input id="p_halt_armB" type="checkbox"><span class="u">on</span></div>
+      <div class="pr"><label>高空滑台2</label><input id="p_halt_conv2" type="checkbox"><span class="u">on</span></div>
+      <div class="pr"><label>出料貨架</label><input id="p_halt_cart_out" type="checkbox"><span class="u">on</span></div>
     </div>
     <div class="pg"><h3>模擬</h3>
       <div class="pr"><label>模擬時數</label><input id="p_simH" type="number" value="8"><span class="u">hr</span></div>
@@ -302,7 +318,22 @@ function readP(){
     strWaitAlmostDone:document.getElementById('p_str_wait_almost_done')?.checked!==false,
     // Pre-bake (步進式: preCT = 每步移動時間, 機台內部動作不加 GAP)
     preCT:g('p_pre_ct'), preSlots:g('p_pre_slots'),
-    preHalt:document.getElementById('p_pre_halt')?.checked===true,
+    // ===== 異常停機 (測試用) =====
+    haltCartIn:document.getElementById('p_halt_cart_in')?.checked===true,
+    haltArmA:document.getElementById('p_halt_armA')?.checked===true,
+    haltConv1:document.getElementById('p_halt_conv1')?.checked===true,
+    haltArmO:document.getElementById('p_halt_armO')?.checked===true,
+    haltWasher:document.getElementById('p_halt_washer')?.checked===true,
+    haltArm1:document.getElementById('p_halt_arm1')?.checked===true,
+    haltArm2:document.getElementById('p_halt_arm2')?.checked===true,
+    haltStr:document.getElementById('p_halt_str')?.checked===true,
+    haltPre:document.getElementById('p_halt_pre')?.checked===true,
+    haltArm3:document.getElementById('p_halt_arm3')?.checked===true,
+    haltArmL:document.getElementById('p_halt_armL')?.checked===true,
+    haltOven:document.getElementById('p_halt_oven')?.checked===true,
+    haltArmB:document.getElementById('p_halt_armB')?.checked===true,
+    haltConv2:document.getElementById('p_halt_conv2')?.checked===true,
+    haltCartOut:document.getElementById('p_halt_cart_out')?.checked===true,
     // Arm 3
     arm3ToP2:a('p_arm3_to_p2'), arm3ToOut:a('p_arm3_to_out'),
     get arm3Total(){ return this.arm3ToP2+this.arm3ToOut; },
@@ -615,22 +646,30 @@ function simStep(dt){
 
   // === 2. 更新機台計時器 ===
   // 高空滑台1: 2台小車獨立 (ready→going→arrived→returning→ready)
-  M.conv1.forEach(car=>{
-    if(car.state==='going'){car.timer-=dt;if(car.timer<=0){car.state='arrived';B.conv1++;}}
-    else if(car.state==='returning'){car.timer-=dt;if(car.timer<=0){car.state='ready';}}
-  });
-  const c1going=M.conv1.some(c=>c.state==='going');
-  const c1ret=M.conv1.some(c=>c.state==='returning');
-  if(c1going) setSt('conv1','working',`去程${B.conv1>0?' +'+B.conv1+'片到達':''}`);
-  else if(c1ret) setSt('conv1','working',`回程${B.conv1>0?' +'+B.conv1+'片到達':''}`);
-  else if(B.conv1>0) setSt('conv1','idle',`${B.conv1}片到達`);
-  else setSt('conv1','idle','');
+  if(!P.haltConv1){
+    M.conv1.forEach(car=>{
+      if(car.state==='going'){car.timer-=dt;if(car.timer<=0){car.state='arrived';B.conv1++;}}
+      else if(car.state==='returning'){car.timer-=dt;if(car.timer<=0){car.state='ready';}}
+    });
+  }
+  if(P.haltConv1) setSt('conv1','idle','異常停機中');
+  else {
+    const c1going=M.conv1.some(c=>c.state==='going');
+    const c1ret=M.conv1.some(c=>c.state==='returning');
+    if(c1going) setSt('conv1','working',`去程${B.conv1>0?' +'+B.conv1+'片到達':''}`);
+    else if(c1ret) setSt('conv1','working',`回程${B.conv1>0?' +'+B.conv1+'片到達':''}`);
+    else if(B.conv1>0) setSt('conv1','idle',`${B.conv1}片到達`);
+    else setSt('conv1','idle','');
+  }
 
   // 清洗機 (迴轉步進式單一 I/O: 並行模型)
   //   - cleaning 與 armO 動作並行 (chamber 開放, 但實際清洗水仍在跑)
   //   - moving 旋轉時 armO 不能取放 (chamber 在轉, 防干涉)
   //   - 旋轉只在「清洗計時到」且「armO idle」時觸發
-  {
+  if(P.haltWasher){
+    const cntIn=(M.washer.slots||[]).filter(s=>s!==null).length;
+    setSt('washer','idle',`異常停機中 (${cntIn}/${P.washSlots}格)`);
+  } else {
     const w=M.washer;
     if(!w.slots || w.slots.length!==P.washSlots){w.slots=new Array(P.washSlots).fill(null);}
     const N=P.washSlots;
@@ -696,16 +735,20 @@ function simStep(dt){
   }
 
   // 強化機 (各台獨立, done=完成待取, 片仍佔機台)
-  M.str.forEach(s=>{if(s.has&&!s.done){s.timer-=dt;if(s.timer<=0){s.done=true;B.strDone++;if(s.piece) s.piece.strDoneTime=S.time;}}});
+  if(!P.haltStr){
+    M.str.forEach(s=>{if(s.has&&!s.done){s.timer-=dt;if(s.timer<=0){s.done=true;B.strDone++;if(s.piece) s.piece.strDoneTime=S.time;}}});
+  }
   {const strBaking=M.str.filter(s=>s.has&&!s.done).length;
   const strDone=M.str.filter(s=>s.has&&s.done).length;
-  if(strBaking>0||strDone>0) setSt('strengthen','working',`強化${strBaking} 待取${strDone}/${P.strN}台`); else setSt('strengthen','idle','');}
+  if(P.haltStr && (strBaking>0||strDone>0)) setSt('strengthen','idle',`異常停機中 (強化${strBaking}+待取${strDone})`);
+  else if(strBaking>0||strDone>0) setSt('strengthen','working',`強化${strBaking} 待取${strDone}/${P.strN}台`);
+  else setSt('strengthen','idle','');}
 
   // 預烘機 (步進式: 入口 slots[0] = arm2 放, 出口 slots[last] = arm3 取, 移動中入出口都不能取放)
   {
     const pre=M.prebake;
     const last=pre.slots.length-1;
-    if(P.preHalt){
+    if(P.haltPre){
       // 異常停機: 凍結步進 (不觸發新步、moving 中也不推進計時)
       const cnt=pre.slots.filter(s=>s!==null).length;
       setSt('prebake','idle',`異常停機中 (${cnt}/${P.preSlots}格)`);
@@ -738,16 +781,21 @@ function simStep(dt){
   }
 
   // 高空滑台2: 2台小車獨立 (ready→going→arrived→returning→ready)
-  M.conv2.forEach(car=>{
-    if(car.state==='going'){car.timer-=dt;if(car.timer<=0){car.state='arrived';B.conv2++;}}
-    else if(car.state==='returning'){car.timer-=dt;if(car.timer<=0){car.state='ready';}}
-  });
-  const c2going=M.conv2.some(c=>c.state==='going');
-  const c2ret=M.conv2.some(c=>c.state==='returning');
-  if(c2going) setSt('conv2','working',`去程${B.conv2>0?' +'+B.conv2+'片到達':''}`);
-  else if(c2ret) setSt('conv2','working',`回程${B.conv2>0?' +'+B.conv2+'片到達':''}`);
-  else if(B.conv2>0) setSt('conv2','idle',`${B.conv2}片到達`);
-  else setSt('conv2','idle','');
+  if(!P.haltConv2){
+    M.conv2.forEach(car=>{
+      if(car.state==='going'){car.timer-=dt;if(car.timer<=0){car.state='arrived';B.conv2++;}}
+      else if(car.state==='returning'){car.timer-=dt;if(car.timer<=0){car.state='ready';}}
+    });
+  }
+  if(P.haltConv2) setSt('conv2','idle','異常停機中');
+  else {
+    const c2going=M.conv2.some(c=>c.state==='going');
+    const c2ret=M.conv2.some(c=>c.state==='returning');
+    if(c2going) setSt('conv2','working',`去程${B.conv2>0?' +'+B.conv2+'片到達':''}`);
+    else if(c2ret) setSt('conv2','working',`回程${B.conv2>0?' +'+B.conv2+'片到達':''}`);
+    else if(B.conv2>0) setSt('conv2','idle',`${B.conv2}片到達`);
+    else setSt('conv2','idle','');
+  }
 
   // 利用率 + 瓶頸分析 (從 t=0 起算)
   // 每個設備分類為 productive / blocked / starved / cycleGap / idle
@@ -1009,7 +1057,8 @@ function simStep(dt){
   // === 3. 手臂決策 (只在idle時) ===
 
   // -- 入料: 換車(32片) or 旋轉貨架(16片) --
-  if(S.inCartCnt>=P.cartPieces && !armBusy('armA')){
+  if(P.haltCartIn) setSt('inputCart','idle','異常停機中');
+  else if(S.inCartCnt>=P.cartPieces && !armBusy('armA')){
     // 換車 (含拍照定位，不旋轉)
     S.inCartCnt=0;S.armAPhotoCnt=0;S._armAPhotoDone=false;S.ccIn++;S.ccTime+=P.cartInEffective;
     armCartChange('armA',P.cartInEffective);
@@ -1024,7 +1073,8 @@ function simStep(dt){
     addEv('info','入料旋轉',`第${S.inCartCnt}片`);
   }
   // -- 出料: 換車 or 旋轉貨架 --
-  if(S.outCartCnt>=P.cartOutPieces && !armBusy('armB')){
+  if(P.haltCartOut) setSt('outputCart','idle','異常停機中');
+  else if(S.outCartCnt>=P.cartOutPieces && !armBusy('armB')){
     S.outCartCnt=0;S.armBPhotoCnt=0;S._armBPhotoDone=false;S.ccOut++;S.ccTime+=P.cartOutEffective;
     armCartChange('armB',P.cartOutEffective);
     setSt('outputCart','cart_change','換車中',P.cartOutEffective);
@@ -1038,7 +1088,8 @@ function simStep(dt){
   }
 
   // -- 手臂A: 拍照 (拍貨架, 不需等車) + 取放 (需等車) --
-  if(!armBusy('armA') && B.cart>0){
+  if(P.haltArmA && !armBusy('armA')) setSt('armA','idle','異常停機中');
+  else if(!armBusy('armA') && B.cart>0 && !P.haltArmA){
     const needPhoto=S.armAPhotoCnt % P.armAPhotoN === 0 && !S._armAPhotoDone;
     if(needPhoto){
       // 拍照定位: 拍貨架, 不需要滑台小車, 可與小車回程並行
@@ -1060,7 +1111,8 @@ function simStep(dt){
   }
 
   // -- 手臂O: 清洗機 cleaning 階段可取放 (與清洗並行), moving 階段不能 (防干涉) --
-  if(!armBusy('armO') && M.washer.phase!=='moving'){
+  if(P.haltArmO && !armBusy('armO')) setSt('armO','idle','異常停機中');
+  else if(!armBusy('armO') && M.washer.phase!=='moving' && !P.haltArmO){
     const ioPiece=M.washer.slots[0];
     const ioDone=ioPiece && ioPiece.stepsLeft<=0;
     const cntIn=M.washer.slots.filter(s=>s!==null).length;
@@ -1089,13 +1141,15 @@ function simStep(dt){
   }
 
   // -- 手臂1: 暫存架→轉接平台1 (暫存架有料就取, 平台1未滿) --
-  if(!armBusy('arm1') && B.rack>0 && B.plat1<P.plat1Cap){
+  if(P.haltArm1 && !armBusy('arm1')) setSt('arm1','idle','異常停機中');
+  else if(!armBusy('arm1') && B.rack>0 && B.plat1<P.plat1Cap && !P.haltArm1){
     armStart('arm1',[{action:'暫存架→平台1',duration:P.arm1Move}]);
     S.arms.arm1._onComplete=()=>{B.rack--;B.plat1++;S.pieceCnt.arm1++;};
   }
 
   // -- 手臂2: 優先出(強化完→預烘)，再進(平台1有料→強化) --
-  if(!armBusy('arm2')){
+  if(P.haltArm2 && !armBusy('arm2')) setSt('arm2','idle','異常停機中');
+  else if(!armBusy('arm2') && !P.haltArm2){
     // FIFO: 取最先完成強化那台 (依 strDoneTime 排序, 最早優先)
     const doneList=M.str.filter(s=>s.has&&s.done);
     const doneStr=doneList.length>0 ? doneList.reduce((a,b)=>(a.piece?.strDoneTime??Infinity)<=(b.piece?.strDoneTime??Infinity)?a:b) : null;
@@ -1152,7 +1206,8 @@ function simStep(dt){
   }
 
   // -- 手臂3: 優先出(上層→滑台2)，但若滑台2無空車則改去取預烘出料 (避免空轉, 提升利用率) --
-  if(!armBusy('arm3')){
+  if(P.haltArm3 && !armBusy('arm3')) setSt('arm3','idle','異常停機中');
+  else if(!armBusy('arm3') && !P.haltArm3){
     const freeCar2=M.conv2.find(c=>c.state==='ready');
     const canDrain = B.plat2Upper>0 && !!freeCar2;
     const preLast=M.prebake.slots.length-1;
@@ -1193,9 +1248,13 @@ function simStep(dt){
   }
 
   // -- 烤箱步進 tick: 步進完成後 ovenPos 前進 1 (單向循環) --
-  if(S.ovenStepping && S.time>=S.ovenStepEnd){
+  if(!P.haltOven && S.ovenStepping && S.time>=S.ovenStepEnd){
     S.ovenPos=(S.ovenPos+1) % P.ovenRods;
     S.ovenStepping=false;
+  }
+  if(P.haltOven){
+    // 異常停機: 凍結步進 (S.ovenStepEnd 推遲, 維持原 step 倒數)
+    if(S.ovenStepping) S.ovenStepEnd+=dt;
   }
 
   // -- 手臂L + 烤箱: 37稈位旋轉盤模型 --
@@ -1204,7 +1263,8 @@ function simStep(dt){
   //          出料不自動步進;
   //          需出料且當前位不可出 → 進入 seek 模式, 持續步進直到到達目標 (途中即使有空稈也不入料);
   //          ooMode 下不入料, seek 中上層滿則暫停等待上層清空
-  if(!armBusy('armL') && !S.ovenStepping){
+  if(P.haltArmL && !armBusy('armL')) setSt('armL','idle','異常停機中');
+  else if(!armBusy('armL') && !S.ovenStepping && !P.haltArmL){
     const cur=S.ovenSlots[S.ovenPos];
     const anyReady=ovenAnyReady();
     const hasRod=ovenHasAny();
@@ -1321,7 +1381,8 @@ function simStep(dt){
   }
 
   // -- 手臂B: 拍照 (拍出料貨架, 不需等 conv2) + 取放 (需 conv2 有片) --
-  if(!armBusy('armB')){
+  if(P.haltArmB && !armBusy('armB')) setSt('armB','idle','異常停機中');
+  else if(!armBusy('armB')){
     const needPhotoB=S.armBPhotoCnt % P.armBPhotoN === 0 && !S._armBPhotoDone;
     if(needPhotoB){
       // 拍照出料貨架: 不需要滑台2上有片
@@ -1349,8 +1410,10 @@ function simStep(dt){
   setSt('platform2',
     (B.plat2Lower>0||B.plat2Upper>0)?'working':'idle',
     `下${B.plat2Lower}/4 上${B.plat2Upper}/4`);
-  if(S.stations.inputCart.state!=='cart_change') setSt('inputCart','idle',`${S.inCartCnt}/${P.cartPieces}`);
-  if(S.stations.outputCart.state!=='cart_change') setSt('outputCart','idle',`${S.outCartCnt}/${P.cartOutPieces}`);
+  if(P.haltCartIn) setSt('inputCart','idle','異常停機中');
+  else if(S.stations.inputCart.state!=='cart_change') setSt('inputCart','idle',`${S.inCartCnt}/${P.cartPieces}`);
+  if(P.haltCartOut) setSt('outputCart','idle','異常停機中');
+  else if(S.stations.outputCart.state!=='cart_change') setSt('outputCart','idle',`${S.outCartCnt}/${P.cartOutPieces}`);
 
   // UPH log
   S._uphT-=dt;
@@ -1450,6 +1513,16 @@ function stCol(id){
   const s=S.stations[id];if(!s)return'#2a2a4a';
   switch(s.state){case'working':return'#4ecca3';case'blocked':return'#e94560';case'cart_change':return'#f39c12';default:return'#2a2a4a';}
 }
+
+// 設備 station id → halt P 屬性對應
+const HALT_MAP={
+  inputCart:'haltCartIn', armA:'haltArmA', conv1:'haltConv1',
+  armO:'haltArmO', washer:'haltWasher', arm1:'haltArm1',
+  arm2:'haltArm2', strengthen:'haltStr', prebake:'haltPre',
+  arm3:'haltArm3', armL:'haltArmL', oven:'haltOven',
+  armB:'haltArmB', conv2:'haltConv2', outputCart:'haltCartOut',
+};
+function isHalted(id){ const k=HALT_MAP[id]; return k && P[k]===true; }
 
 function draw(){
   ctx.clearRect(0,0,cW,cH);
@@ -1563,6 +1636,28 @@ function drawEq(id,eq){
   if(action && !eq.isOven && !eq.isRack && !eq.isGroup){
     ctx.fillStyle=col+'aa';ctx.font=`${Math.max(6,ts(7))}px sans-serif`;ctx.textAlign='center';
     ctx.fillText(action,x+w/2,y+h+ts(9));
+  }
+  // 異常停機 highlight: 紅色虛線脈動外框 + 半透明紅底 + 「停機」標籤
+  if(isHalted(id)){
+    ctx.save();
+    ctx.fillStyle='rgba(233,69,96,0.18)';
+    ctx.fillRect(x,y,w,h);
+    ctx.strokeStyle='#e94560';
+    ctx.lineWidth=2.5;
+    ctx.setLineDash([6,4]);
+    ctx.globalAlpha=0.6+0.4*Math.abs(Math.sin(S.time*3));
+    ctx.strokeRect(x-2,y-2,w+4,h+4);
+    ctx.setLineDash([]);
+    ctx.globalAlpha=1;
+    // 停機標籤 (右上角)
+    const tagW=ts(22), tagH=ts(11);
+    ctx.fillStyle='#e94560';
+    ctx.fillRect(x+w-tagW,y-tagH/2,tagW,tagH);
+    ctx.fillStyle='#fff';
+    ctx.font=`bold ${Math.max(7,ts(8))}px Microsoft JhengHei,sans-serif`;
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('停機',x+w-tagW/2,y);
+    ctx.restore();
   }
 }
 
@@ -2054,8 +2149,16 @@ function drawTimeline(){
   ids.forEach((id,i)=>{
     const s=S.stations[id];if(!s)return;
     const yy=i*rH+.5,bh=rH-1;
-    const c2=stCol(id);
-    x3.fillStyle=c2+'28';x3.fillRect(lW,yy,bW,bh);
+    const halted=isHalted(id);
+    const c2=halted?'#e94560':stCol(id);
+    x3.fillStyle=halted?'rgba(233,69,96,0.28)':(c2+'28');x3.fillRect(lW,yy,bW,bh);
+    if(halted){
+      // 紅色脈動左邊條
+      x3.fillStyle='#e94560';
+      x3.globalAlpha=0.6+0.4*Math.abs(Math.sin(S.time*3));
+      x3.fillRect(lW,yy,3,bh);
+      x3.globalAlpha=1;
+    }
     // Action text
     const lb=s.action||({idle:'待機',working:'運作',blocked:'阻塞',cart_change:'換車'}[s.state]||'');
     x3.fillStyle=c2;x3.font='10px sans-serif';x3.textAlign='left';
@@ -2684,7 +2787,8 @@ const PARAM_IDS=[
   'p_armA_photo','p_armA_pick','p_armA_photo_n',
   'p_conv1_go','p_conv1_back','p_armO_to_wash','p_armO_to_rack',
   'p_wash_clean','p_wash_move','p_wash_slots','p_arm1_move','p_plat1_cap',
-  'p_rack_cap','p_arm2_to_str','p_arm2_to_pre','p_str_ct','p_str_n','p_str_stagger_gap','p_str_wip_cap','p_str_wait_almost_done','p_pre_ct','p_pre_slots','p_pre_halt',
+  'p_rack_cap','p_arm2_to_str','p_arm2_to_pre','p_str_ct','p_str_n','p_str_stagger_gap','p_str_wip_cap','p_str_wait_almost_done','p_pre_ct','p_pre_slots',
+  'p_halt_cart_in','p_halt_armA','p_halt_conv1','p_halt_armO','p_halt_washer','p_halt_arm1','p_halt_arm2','p_halt_str','p_halt_pre','p_halt_arm3','p_halt_armL','p_halt_oven','p_halt_armB','p_halt_conv2','p_halt_cart_out',
   'p_arm3_to_p2','p_arm3_to_out','p_armL_in','p_armL_out','p_batch',
   'p_ovenRods','p_oven_step','p_bakeOk','p_bakeOver','p_conv2_go','p_conv2_back',
   'p_armB_photo','p_armB_pick','p_armB_photo_n',
