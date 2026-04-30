@@ -1637,26 +1637,43 @@ function drawEq(id,eq){
     ctx.fillStyle=col+'aa';ctx.font=`${Math.max(6,ts(7))}px sans-serif`;ctx.textAlign='center';
     ctx.fillText(action,x+w/2,y+h+ts(9));
   }
-  // 異常停機 highlight: 紅色虛線脈動外框 + 半透明紅底 + 「停機」標籤
+  // 異常停機 highlight: 紅黃斜紋警示帶 + 粗紅框 + 大標籤 (高對比, 必看到)
   if(isHalted(id)){
     ctx.save();
-    ctx.fillStyle='rgba(233,69,96,0.18)';
+    // 1. 紅底
+    ctx.fillStyle='rgba(233,69,96,0.45)';
     ctx.fillRect(x,y,w,h);
+    // 2. 紅黃斜紋 (警示帶) — 用 clip 把斜紋限制在 box 內
+    ctx.beginPath();ctx.rect(x,y,w,h);ctx.clip();
+    const stripeW=ts(8);
+    const offset=(S.time*15)%((stripeW*2)|0); // 斜紋滾動
+    ctx.strokeStyle='rgba(255,235,59,0.55)'; // 黃
+    ctx.lineWidth=stripeW;
+    for(let i=-(h|0)-stripeW;i<w+h;i+=stripeW*2){
+      ctx.beginPath();
+      ctx.moveTo(x+i+offset,y);
+      ctx.lineTo(x+i+offset+h,y+h);
+      ctx.stroke();
+    }
+    ctx.restore();
+    // 3. 粗紅框 (脈動)
+    ctx.save();
     ctx.strokeStyle='#e94560';
-    ctx.lineWidth=2.5;
-    ctx.setLineDash([6,4]);
-    ctx.globalAlpha=0.6+0.4*Math.abs(Math.sin(S.time*3));
-    ctx.strokeRect(x-2,y-2,w+4,h+4);
-    ctx.setLineDash([]);
-    ctx.globalAlpha=1;
-    // 停機標籤 (右上角)
-    const tagW=ts(22), tagH=ts(11);
+    ctx.lineWidth=4;
+    ctx.globalAlpha=0.7+0.3*Math.abs(Math.sin(S.time*4));
+    ctx.strokeRect(x-3,y-3,w+6,h+6);
+    ctx.restore();
+    // 4. 大停機標籤 (置中)
+    ctx.save();
+    const tagW=Math.max(40,ts(40)), tagH=Math.max(16,ts(16));
     ctx.fillStyle='#e94560';
-    ctx.fillRect(x+w-tagW,y-tagH/2,tagW,tagH);
+    ctx.fillRect(x+w/2-tagW/2,y+h/2-tagH/2,tagW,tagH);
+    ctx.strokeStyle='#fff';ctx.lineWidth=1.5;
+    ctx.strokeRect(x+w/2-tagW/2,y+h/2-tagH/2,tagW,tagH);
     ctx.fillStyle='#fff';
-    ctx.font=`bold ${Math.max(7,ts(8))}px Microsoft JhengHei,sans-serif`;
+    ctx.font=`bold ${Math.max(11,ts(11))}px Microsoft JhengHei,sans-serif`;
     ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillText('停機',x+w-tagW/2,y);
+    ctx.fillText('⛔ 停機',x+w/2,y+h/2);
     ctx.restore();
   }
 }
@@ -2151,13 +2168,18 @@ function drawTimeline(){
     const yy=i*rH+.5,bh=rH-1;
     const halted=isHalted(id);
     const c2=halted?'#e94560':stCol(id);
-    x3.fillStyle=halted?'rgba(233,69,96,0.28)':(c2+'28');x3.fillRect(lW,yy,bW,bh);
+    x3.fillStyle=halted?'rgba(233,69,96,0.6)':(c2+'28');x3.fillRect(lW,yy,bW,bh);
     if(halted){
-      // 紅色脈動左邊條
-      x3.fillStyle='#e94560';
-      x3.globalAlpha=0.6+0.4*Math.abs(Math.sin(S.time*3));
-      x3.fillRect(lW,yy,3,bh);
+      // 整行強紅底 + 左邊脈動白條 + ⛔ 標
+      x3.fillStyle='#fff';
+      x3.globalAlpha=0.7+0.3*Math.abs(Math.sin(S.time*4));
+      x3.fillRect(lW,yy,5,bh);
       x3.globalAlpha=1;
+      x3.fillStyle='#fff';
+      x3.font='bold 11px Microsoft JhengHei,sans-serif';
+      x3.textAlign='right';
+      x3.fillText('⛔ 停機',w-5,yy+bh*.72);
+      x3.textAlign='left';
     }
     // Action text
     const lb=s.action||({idle:'待機',working:'運作',blocked:'阻塞',cart_change:'換車'}[s.state]||'');
@@ -2578,6 +2600,8 @@ function reset(){
   document.getElementById('s_uph_ss2').textContent='等待首片到達出料貨架';
   document.getElementById('s_oven_first').textContent='首次出料: --';
   document.getElementById('s_oven_uph').textContent='烤箱出料 UPH: --';
+  // 解除所有異常停機 checkbox
+  PARAM_IDS.forEach(id=>{if(id.startsWith('p_halt_')){const el=document.getElementById(id);if(el&&el.type==='checkbox')el.checked=false;}});
   readP();initSim();draw();updateStats();drawTimeline();drawUphChart();
 }
 
