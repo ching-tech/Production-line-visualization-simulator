@@ -125,10 +125,13 @@ body{font-family:'Noto Sans TC','Microsoft JhengHei','Segoe UI',sans-serif;font-
       <div class="pr"><label>台數</label><input id="p_str_n" type="number" value="4"><span class="u">台</span></div>
       <div class="pr"><label>投料錯開 (避免同時完成)</label><input id="p_str_stagger" type="checkbox" checked><span class="u">on</span></div>
       <div class="pr"><label>錯開最小間隔</label><input id="p_str_stagger_gap" type="number" value="60"><span class="u">秒</span></div>
+      <div class="pr"><label>WIP 上限 (強化↔預烘)</label><input id="p_str_wip_cap" type="number" value="2"><span class="u">片(0=不限)</span></div>
+      <div class="pr"><label>預判等待 (強化將完成不投料)</label><input id="p_str_wait_almost_done" type="checkbox" checked><span class="u">on</span></div>
     </div>
     <div class="pg"><h3>預烘機 (步進式 · Early Release)</h3>
       <div class="pr"><label>步進移動時間(每步)</label><input id="p_pre_ct" type="number" value="10"><span class="u">秒</span></div>
       <div class="pr"><label>格數</label><input id="p_pre_slots" type="number" value="4"><span class="u">格</span></div>
+      <div class="pr"><label>異常停機 (測試用)</label><input id="p_pre_halt" type="checkbox"><span class="u">on=停止步進</span></div>
     </div>
     <div class="pg"><h3>手臂3 (入料,預烘→平台2下)</h3>
       <div class="pr"><label>取預烘→放平台2下</label><input id="p_arm3_to_p2" type="number" value="35"><span class="u">秒</span></div>
@@ -292,8 +295,11 @@ function readP(){
     strCT:g('p_str_ct'), strN:g('p_str_n'),  // 每台1片, CT=strCT
     strStagger:document.getElementById('p_str_stagger')?.checked!==false,
     strStaggerGap:g('p_str_stagger_gap'),
+    strWipCap:g('p_str_wip_cap'),
+    strWaitAlmostDone:document.getElementById('p_str_wait_almost_done')?.checked!==false,
     // Pre-bake (步進式: preCT = 每步移動時間, 屬於動作型)
     preCT:g('p_pre_ct'), preSlots:g('p_pre_slots'),
+    preHalt:document.getElementById('p_pre_halt')?.checked===true,
     // Arm 3
     arm3ToP2:a('p_arm3_to_p2'), arm3ToOut:a('p_arm3_to_out'),
     get arm3Total(){ return this.arm3ToP2+this.arm3ToOut; },
@@ -672,7 +678,11 @@ function simStep(dt){
   {
     const pre=M.prebake;
     const last=pre.slots.length-1;
-    if(pre.phase==='moving'){
+    if(P.preHalt){
+      // 異常停機: 凍結步進 (不觸發新步、moving 中也不推進計時)
+      const cnt=pre.slots.filter(s=>s!==null).length;
+      setSt('prebake','idle',`異常停機中 (${cnt}/${P.preSlots}格)`);
+    } else if(pre.phase==='moving'){
       pre.stepTimer-=dt;
       if(pre.stepTimer<=0){
         // 步進: 整列往出口推一格 (R1+R2 已保證 slots[last]==null 且 slots[0]!=null)
@@ -1046,19 +1056,32 @@ function simStep(dt){
     } else if(B.plat1>0){
       const freeStr=M.str.find(s=>!s.has);
       // 錯開: 若上次投料距今 < 最小間隔, 暫不投料 (避免4台同時完成)
-      const staggerGap = P.strStaggerGap>0 ? P.strStaggerGap : (P.strN>0?P.strCT/P.strN:0);
+      const staggerGap = P.strStaggerGap>0 ? P.strStaggerGap : (P.strN>0?P.strCT/P.strN+P.preCT:0);
       const needWaitStagger = P.strStagger && (S.time - S.lastStrLoadTime < staggerGap);
-      if(freeStr && !needWaitStagger){
+      // WIP 上限: 強化完成等候 + 預烘入口未消化 ≥ 上限 → 暫停投料 (下游卡住時 backpressure)
+      const wipNow = B.strDone + (M.prebake.slots[0]!==null?1:0);
+      const wipBlocked = P.strWipCap>0 && wipNow>=P.strWipCap;
+      // 預判: 有強化機剩餘 < arm2ToStr + preCT (含已完成等取的, 視同剩 0) → 不投料
+      // (即使 arm2 有空, 預烘 slot 0 可能還在被前一片佔, 要等 preCT 才放得進去)
+      const minRemain = M.str.filter(s=>s.has).reduce((m,s)=>Math.min(m, s.done?0:s.timer),Infinity);
+      const strAlmostDone = P.strWaitAlmostDone && minRemain < (P.arm2ToStr + P.preCT);
+      if(freeStr && !needWaitStagger && !wipBlocked && !strAlmostDone){
         armStart('arm2',[{action:'取平台1→強化',duration:P.arm2ToStr}]);
         S.arms.arm2._onComplete=()=>{B.plat1--;freeStr.has=true;freeStr.timer=P.strCT;freeStr.piece={id:++S.pieceId,strInTime:S.time};S.pieceCnt.arm2_in++;S.pieceCnt.strengthen++;S.lastStrLoadTime=S.time;};
       }
     }
     // 顯示等待原因
     if(!armBusy('arm2')){
-      const staggerGap = P.strStaggerGap>0 ? P.strStaggerGap : (P.strN>0?P.strCT/P.strN:0);
+      const staggerGap = P.strStaggerGap>0 ? P.strStaggerGap : (P.strN>0?P.strCT/P.strN+P.preCT:0);
       const needWaitStagger = P.strStagger && (S.time - S.lastStrLoadTime < staggerGap);
+      const wipNow = B.strDone + (M.prebake.slots[0]!==null?1:0);
+      const wipBlocked = P.strWipCap>0 && wipNow>=P.strWipCap;
+      const minRemain = M.str.filter(s=>s.has).reduce((m,s)=>Math.min(m, s.done?0:s.timer),Infinity);
+      const strAlmostDone = P.strWaitAlmostDone && minRemain < (P.arm2ToStr + P.preCT);
       if(doneStr && !preCanIn) setSt('arm2','idle','等待預烘機入口');
       else if(B.plat1>0 && !M.str.find(s=>!s.has)) setSt('arm2','idle','強化機全滿');
+      else if(B.plat1>0 && wipBlocked) setSt('arm2','idle',`WIP上限阻擋 ${wipNow}/${P.strWipCap}`);
+      else if(B.plat1>0 && strAlmostDone) setSt('arm2','idle',`預判等待強化完成 ${minRemain.toFixed(0)}s`);
       else if(B.plat1>0 && needWaitStagger) setSt('arm2','idle',`投料錯開中 ${(staggerGap-(S.time-S.lastStrLoadTime)).toFixed(0)}s`);
       else if(!doneStr && B.plat1===0) setSt('arm2','idle','等待物料');
     }
@@ -2544,7 +2567,7 @@ const PARAM_IDS=[
   'p_armA_photo','p_armA_pick','p_armA_photo_n',
   'p_conv1_go','p_conv1_back','p_armO_to_wash','p_armO_to_rack',
   'p_wash_clean','p_wash_move','p_wash_slots','p_arm1_move','p_plat1_cap',
-  'p_rack_cap','p_arm2_to_str','p_arm2_to_pre','p_str_ct','p_str_n','p_str_stagger_gap','p_pre_ct','p_pre_slots',
+  'p_rack_cap','p_arm2_to_str','p_arm2_to_pre','p_str_ct','p_str_n','p_str_stagger_gap','p_str_wip_cap','p_str_wait_almost_done','p_pre_ct','p_pre_slots','p_pre_halt',
   'p_arm3_to_p2','p_arm3_to_out','p_armL_in','p_armL_out','p_batch',
   'p_ovenRods','p_oven_step','p_bakeOk','p_bakeOver','p_conv2_go','p_conv2_back',
   'p_armB_photo','p_armB_pick','p_armB_photo_n',
