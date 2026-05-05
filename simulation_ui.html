@@ -123,10 +123,10 @@ body{font-family:'Noto Sans TC','Microsoft JhengHei','Segoe UI',sans-serif;font-
     <div class="pg"><h3>強化機</h3>
       <div class="pr"><label>強化CT (每台1片)</label><input id="p_str_ct" type="number" value="120"><span class="u">秒</span></div>
       <div class="pr"><label>台數</label><input id="p_str_n" type="number" value="4"><span class="u">台</span></div>
-      <div class="pr"><label>投料錯開 (避免同時完成)</label><input id="p_str_stagger" type="checkbox" checked><span class="u">on</span></div>
-      <div class="pr"><label>錯開最小間隔</label><input id="p_str_stagger_gap" type="number" value="60"><span class="u">秒</span></div>
+      <div class="pr"><label>投料錯開 (避免同時完成)</label><input id="p_str_stagger" type="checkbox"><span class="u">on</span></div>
+      <div class="pr"><label>錯開最小間隔</label><input id="p_str_stagger_gap" type="number" value="0"><span class="u">秒</span></div>
       <div class="pr"><label>WIP 上限 (強化↔預烘)</label><input id="p_str_wip_cap" type="number" value="2"><span class="u">片(0=不限)</span></div>
-      <div class="pr"><label>預判等待 (強化將完成不投料)</label><input id="p_str_wait_almost_done" type="checkbox" checked><span class="u">on</span></div>
+      <div class="pr"><label>預判等待 (強化將完成不投料)</label><input id="p_str_wait_almost_done" type="checkbox"><span class="u">on</span></div>
       <div class="pr"><label>事件模式 (用條件代替 staggerGap)</label><input id="p_str_event_mode" type="checkbox"><span class="u">on=不看時間, 看 token</span></div>
     </div>
     <div class="pg"><h3>預烘機 (步進式 · Early Release)</h3>
@@ -318,6 +318,7 @@ function readP(){
     strWipCap:g('p_str_wip_cap'),
     strWaitAlmostDone:document.getElementById('p_str_wait_almost_done')?.checked!==false,
     strEventMode:document.getElementById('p_str_event_mode')?.checked===true,
+    armGap:GAP,
     // Pre-bake (步進式: preCT = 每步移動時間, 機台內部動作不加 GAP)
     preCT:g('p_pre_ct'), preSlots:g('p_pre_slots'),
     // ===== 異常停機 (測試用) =====
@@ -1184,9 +1185,9 @@ function simStep(dt){
       // WIP 上限: 強化完成等候 + 預烘入口未消化 ≥ 上限 → 暫停投料 (下游卡住時 backpressure)
       const wipNow = B.strDone + (M.prebake.slots[0]!==null?1:0);
       const wipBlocked = P.strWipCap>0 && wipNow>=P.strWipCap;
-      // 預判: 有強化機剩餘 < arm2ToStr + preCT (含已完成等取的, 視同剩 0) → 不投料
+      // 預判: 有強化機剩餘 < arm2ToStr + GAP buffer (含已完成等取的, 視同剩 0) → 不投料
       const minRemain = M.str.filter(s=>s.has).reduce((m,s)=>Math.min(m, s.done?0:s.timer),Infinity);
-      const strAlmostDone = P.strWaitAlmostDone && minRemain < (P.arm2ToStr + P.preCT);
+      const strAlmostDone = P.strWaitAlmostDone && minRemain < (P.arm2ToStr + P.armGap);
       // 事件模式 (token bucket): 投料消耗 1 token, 預烘 step 補充 1 token (Kanban)
       const tokenBlock = P.strEventMode && (S.strLoadTokens||0) <= 0;
       if(freeStr && !needWaitStagger && !wipBlocked && !strAlmostDone && !tokenBlock){
@@ -1201,7 +1202,7 @@ function simStep(dt){
       const wipNow = B.strDone + (M.prebake.slots[0]!==null?1:0);
       const wipBlocked = P.strWipCap>0 && wipNow>=P.strWipCap;
       const minRemain = M.str.filter(s=>s.has).reduce((m,s)=>Math.min(m, s.done?0:s.timer),Infinity);
-      const strAlmostDone = P.strWaitAlmostDone && minRemain < (P.arm2ToStr + P.preCT);
+      const strAlmostDone = P.strWaitAlmostDone && minRemain < (P.arm2ToStr + P.armGap);
       const tokenBlock = P.strEventMode && (S.strLoadTokens||0) <= 0;
       if(doneStr && !preCanIn) setSt('arm2','idle','等待預烘機入口');
       else if(B.plat1>0 && !M.str.find(s=>!s.has)) setSt('arm2','idle','強化機全滿');
