@@ -6,7 +6,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="icon" type="image/svg+xml" href="https://raw.githubusercontent.com/ching-tech/ching-tech.github.io/main/images/CTLogo.svg">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
-<title>產線模擬 - 手臂3合併 [experiment/armO-direct-plat1 v0.1]</title>
+<title>產線模擬 - 手臂3合併 [experiment/armO-direct-plat1 v0.2]</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Noto Sans TC','Microsoft JhengHei','Segoe UI',sans-serif;font-weight:400;background:#1a1a2e;color:#e0e0e0;overflow:hidden;height:100vh}
@@ -75,7 +75,7 @@ body{font-family:'Noto Sans TC','Microsoft JhengHei','Segoe UI',sans-serif;font-
 <body>
 <div class="app">
   <div class="hdr">
-    <h1>產線模擬 - 手臂3 合併版 <span style="color:#888;font-size:0.7em">[experiment/armO-direct-plat1 · v0.1]</span></h1>
+    <h1>產線模擬 - 手臂3 合併版 <span style="color:#888;font-size:0.7em">[experiment/armO-direct-plat1 · v0.2]</span></h1>
     <button class="btn-go" id="btnR" onclick="toggle()">&#9654; 開始</button>
     <button class="btn-rs" onclick="reset()">&#8635; 重置</button>
     <div class="spd"><span>速度:</span><input type="range" id="spdR" min="0" max="1000" value="1000" style="width:100px;vertical-align:middle;accent-color:#4ecca3"><input type="number" id="spdS" min="1" max="999" value="999" style="width:56px;background:#0a0a23;border:1px solid #0f3460;color:#4ecca3;padding:2px 4px;border-radius:2px;font-size:11px;text-align:right"><span id="spdL">x</span></div>
@@ -121,7 +121,7 @@ body{font-family:'Noto Sans TC','Microsoft JhengHei','Segoe UI',sans-serif;font-
       <div class="pr"><label>台數</label><input id="p_str_n" type="number" value="4"><span class="u">台</span></div>
       <div class="pr"><label>投料錯開 (避免同時完成)</label><input id="p_str_stagger" type="checkbox"><span class="u">on</span></div>
       <div class="pr"><label>錯開最小間隔</label><input id="p_str_stagger_gap" type="number" value="0"><span class="u">秒</span></div>
-      <div class="pr"><label>WIP 上限 (強化↔預烘)</label><input id="p_str_wip_cap" type="number" value="2"><span class="u">片(0=不限)</span></div>
+      <div class="pr"><label>WIP 上限 (強化↔預烘)</label><input id="p_str_wip_cap" type="number" value="0"><span class="u">片(0=不限)</span></div>
       <div class="pr"><label>預判等待 (強化將完成不投料)</label><input id="p_str_wait_almost_done" type="checkbox"><span class="u">on</span></div>
       <div class="pr"><label>事件模式 (用條件代替 staggerGap)</label><input id="p_str_event_mode" type="checkbox"><span class="u">on=不看時間, 看 token</span></div>
     </div>
