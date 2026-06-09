@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://ching-tech.github.io/Production-line-visualization-simulator/sitemap.xml
