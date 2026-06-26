@@ -1514,8 +1514,9 @@ function draw(){
     const _mLabel={in:'連續入料',inout:'一出一進',out:'連續出料'}[S.ovenMode]||'';
     const _mColor={in:'#4ecca3',inout:'#f1c40f',out:'#e94560'}[S.ovenMode]||'#e0e0e0';
     if(S.ovenMode==='out'){ ctx.fillStyle='rgba(233,69,96,0.06)';ctx.fillRect(0,0,cW,cH); }
-    ctx.fillStyle=_mColor;ctx.font=`bold ${ts(16)}px sans-serif`;ctx.textAlign='center';
-    ctx.fillText(`烤箱模式: ${_mLabel}`,cW/2,ty(8));ctx.textAlign='left';
+    ctx.fillStyle=_mColor;ctx.font=`bold ${ts(14)}px sans-serif`;ctx.textAlign='center';
+    // 置於烤箱正上方 (烤箱中心 x≈90, 室頂 y=30 上方)
+    ctx.fillText(`烤箱模式: ${_mLabel}`,tx(90),ty(23));ctx.textAlign='left';
   }
 }
 
